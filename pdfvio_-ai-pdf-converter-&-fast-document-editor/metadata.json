@@ -1,0 +1,7 @@
+{
+  "name": "PDFVio: AI PDF Converter & Fast Document Editor",
+  "description": "PDFVio vaprun PDF files fast convert, merge aani edit karaa. Secure cloud storage aani mobile-friendly interface sobat professional PDF management.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
