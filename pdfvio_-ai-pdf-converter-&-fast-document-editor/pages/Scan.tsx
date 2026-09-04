@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Cropper from 'react-easy-crop';
 import { ProcessingState } from '../types';
@@ -17,24 +16,49 @@ interface CapturedPage {
   id: string;
   name: string;
   date: string;
+  width: number;
+  height: number;
 }
+
+const A4_WIDTH_MM = 210;
+const A4_HEIGHT_MM = 297;
+
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) {
+    return (crypto as any).randomUUID();
+  }
+  return `${Math.random().toString(36).substr(2, 9)}-${Date.now().toString(36)}`;
+};
+
+// Fit an image into an A4 page while preserving its aspect ratio (centered)
+const addImageFitted = (doc: any, page: CapturedPage) => {
+  const imgW = page.width || A4_WIDTH_MM;
+  const imgH = page.height || A4_HEIGHT_MM;
+  const scale = Math.min(A4_WIDTH_MM / imgW, A4_HEIGHT_MM / imgH);
+  const w = imgW * scale;
+  const h = imgH * scale;
+  const x = (A4_WIDTH_MM - w) / 2;
+  const y = (A4_HEIGHT_MM - h) / 2;
+  doc.addImage(page.processed, 'JPEG', x, y, w, h);
+};
 
 const Scan: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scannerRef = useRef<any>(null); 
-  
+  const scannerRef = useRef<any>(null);
+  const pageCounterRef = useRef(0);
+
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedPages, setCapturedPages] = useState<CapturedPage[]>([]);
-  
+
   // UI Steps: 'camera' | 'gallery' | 'preview'
   const [uiStep, setUiStep] = useState<'camera' | 'gallery' | 'preview'>('gallery');
-  
+
   const [previewPage, setPreviewPage] = useState<CapturedPage | null>(null);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [isAutoMode, setIsAutoMode] = useState(true);
   const [activeTrack, setActiveTrack] = useState<MediaStreamTrack | null>(null);
-  
+
   // Cropping State
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -45,7 +69,7 @@ const Scan: React.FC = () => {
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'PDF' | 'JPG'>('PDF');
-  
+
   // Share Modal Toggles
   const [enablePassword, setEnablePassword] = useState(false);
   const [enableOCR, setEnableOCR] = useState(false);
@@ -63,20 +87,66 @@ const Scan: React.FC = () => {
     }
   }, []);
 
-  // CRITICAL FIX: Ensure video stream is attached to the video element whenever uiStep is 'camera'
+  // Ensure video stream is attached to the video element whenever uiStep is 'camera'
   useEffect(() => {
     if (uiStep === 'camera' && stream && videoRef.current) {
       videoRef.current.srcObject = stream;
     }
   }, [uiStep, stream]);
 
+  // FIX: release the camera if the component unmounts while it's still running
+  useEffect(() => {
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream]);
+
+  // FIX: revoke the last exported object URL when it's replaced or on unmount, to avoid leaking memory
+  useEffect(() => {
+    return () => {
+      if (state.resultUrl) {
+        try { URL.revokeObjectURL(state.resultUrl); } catch { /* noop */ }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.resultUrl]);
+
+  // FIX: reset crop/zoom/filter-editing state whenever a different page is opened,
+  // so leftover crop state from a previous page can't leak into the next one
+  useEffect(() => {
+    if (previewPage) {
+      setIsCropping(false);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setCroppedAreaPixels(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewPage?.id]);
+
+  const setResult = (blob: Blob, filename: string) => {
+    setState(prev => {
+      if (prev.resultUrl) {
+        try { URL.revokeObjectURL(prev.resultUrl); } catch { /* noop */ }
+      }
+      return {
+        status: 'success',
+        resultUrl: URL.createObjectURL(blob),
+        resultFileName: filename,
+        progress: 100,
+      };
+    });
+  };
+
   const startCamera = async () => {
     try {
       setState({ status: 'loading', progress: 0, message: 'Waking up camera...' });
       const constraints = {
-        video: { 
-          facingMode: { ideal: 'environment' }, 
-          width: { ideal: 1920 }, 
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
           height: { ideal: 1080 },
           aspectRatio: { ideal: 1.7777777778 }
         },
@@ -103,11 +173,19 @@ const Scan: React.FC = () => {
     setUiStep('gallery');
   };
 
+  // FIX: getCapabilities() isn't implemented in every browser (e.g. Safari, many desktop
+  // browsers) and can throw outside the promise chain — guard the whole thing.
   useEffect(() => {
-    if (activeTrack && activeTrack.getCapabilities().torch) {
-      activeTrack.applyConstraints({
-        advanced: [{ torch: isFlashOn }]
-      } as any).catch(err => console.error("Flash error:", err));
+    if (!activeTrack) return;
+    try {
+      const caps = activeTrack.getCapabilities ? activeTrack.getCapabilities() : ({} as any);
+      if ((caps as any).torch) {
+        activeTrack.applyConstraints({
+          advanced: [{ torch: isFlashOn }]
+        } as any).catch(err => console.error("Flash error:", err));
+      }
+    } catch (err) {
+      console.warn("Torch not supported on this device:", err);
     }
   }, [isFlashOn, activeTrack]);
 
@@ -115,11 +193,11 @@ const Scan: React.FC = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    
+
     // Set canvas dimensions to match video stream
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
@@ -133,10 +211,14 @@ const Scan: React.FC = () => {
     const img = new Image();
     img.src = imageSrc;
     img.onload = () => {
-      if (!canvasRef.current || !scannerRef.current) return;
+      if (!canvasRef.current) {
+        setState({ status: 'idle', progress: 0 });
+        return;
+      }
+
       let finalCanvas = canvasRef.current;
-      
-      if (isAutoMode) {
+
+      if (isAutoMode && scannerRef.current) {
         try {
           // jscanify edge detection and perspective correction
           finalCanvas = scannerRef.current.extractPaper(img, img.width, img.height);
@@ -146,23 +228,30 @@ const Scan: React.FC = () => {
       }
 
       const processedData = finalCanvas.toDataURL('image/jpeg', 0.85);
-      const newPage: CapturedPage = { 
-        original: imageSrc, 
-        processed: processedData, 
+      pageCounterRef.current += 1;
+      const newPage: CapturedPage = {
+        original: imageSrc,
+        processed: processedData,
         filter: 'bw',
-        id: Math.random().toString(36).substr(2, 9),
-        name: `Page ${capturedPages.length + 1}`,
-        date: new Date().toLocaleDateString('en-GB')
+        id: generateId(),
+        name: `Page ${pageCounterRef.current}`,
+        date: new Date().toLocaleDateString('en-GB'),
+        width: finalCanvas.width,
+        height: finalCanvas.height,
       };
-      
+
       setCapturedPages(prev => [...prev, newPage]);
       setState({ status: 'idle', progress: 0 });
-      
+
       // If auto mode is on, we stay in camera to allow continuous scanning
       if (!isAutoMode) {
          setUiStep('gallery');
          stopCamera();
       }
+    };
+    img.onerror = () => {
+      setState({ status: 'error', progress: 0, message: 'Failed to load captured image.' });
+      setTimeout(() => setState({ status: 'idle', progress: 0 }), 2000);
     };
   };
 
@@ -191,7 +280,10 @@ const Scan: React.FC = () => {
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      setState({ status: 'idle', progress: 0 });
+      return;
+    }
 
     if (doCrop && croppedAreaPixels) {
       canvas.width = croppedAreaPixels.width;
@@ -250,13 +342,14 @@ const Scan: React.FC = () => {
 
     ctx.putImageData(imageData, 0, 0);
     const processedData = canvas.toDataURL('image/jpeg', 0.85);
+    const { width, height } = canvas;
 
-    setCapturedPages(prev => prev.map(p => 
-      p.id === pageId ? { ...p, processed: processedData, filter } : p
+    setCapturedPages(prev => prev.map(p =>
+      p.id === pageId ? { ...p, processed: processedData, filter, width, height } : p
     ));
-    
+
     if (previewPage?.id === pageId) {
-      setPreviewPage(prev => prev ? { ...prev, processed: processedData, filter } : null);
+      setPreviewPage(prev => prev ? { ...prev, processed: processedData, filter, width, height } : null);
     }
 
     setState({ status: 'idle', progress: 0 });
@@ -264,48 +357,78 @@ const Scan: React.FC = () => {
   };
 
   const handleExport = async () => {
-    const targets = isSelectMode 
+    const targets = isSelectMode
       ? capturedPages.filter(p => selectedIds.has(p.id))
       : capturedPages;
 
     if (targets.length === 0) return;
-    
-    setState({ status: 'processing', progress: 10, message: 'Building PDF...' });
+
+    setState({
+      status: 'processing',
+      progress: 10,
+      message: exportFormat === 'PDF' ? 'Building PDF...' : 'Preparing images...',
+    });
 
     try {
-      const { jsPDF } = (window as any).jspdf;
-      
-      if (saveSeparately) {
-        const zip = new JSZip();
-        for (let i = 0; i < targets.length; i++) {
-          const page = targets[i];
-          const doc = new jsPDF('p', 'mm', 'a4');
-          doc.addImage(page.processed, 'JPEG', 0, 0, 210, 297);
-          const pdfBlob = doc.output('blob');
-          zip.file(`${page.name}.pdf`, pdfBlob);
-          setState({ status: 'processing', progress: 30 + Math.round((i/targets.length)*60), message: `Zipping ${page.name}...` });
+      if (exportFormat === 'JPG') {
+        // FIX: JPG mode used to be ignored entirely — now it actually exports raw images
+        if (targets.length === 1 && !saveSeparately) {
+          const res = await fetch(targets[0].processed);
+          const blob = await res.blob();
+          setResult(blob, `${targets[0].name.replace(/\s+/g, '_')}.jpg`);
+        } else {
+          const zip = new JSZip();
+          for (let i = 0; i < targets.length; i++) {
+            const page = targets[i];
+            const res = await fetch(page.processed);
+            const blob = await res.blob();
+            zip.file(`${page.name.replace(/\s+/g, '_')}.jpg`, blob);
+            setState({ status: 'processing', progress: Math.round(((i + 1) / targets.length) * 90), message: `Adding ${page.name}...` });
+          }
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          setResult(zipBlob, `${folderName}.zip`);
         }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        setState({ 
-          status: 'success', 
-          resultUrl: URL.createObjectURL(zipBlob), 
-          resultFileName: `${folderName}.zip`,
-          progress: 100 
-        });
       } else {
-        const doc = new jsPDF('p', 'mm', 'a4');
-        for (let i = 0; i < targets.length; i++) {
-          if (i > 0) doc.addPage();
-          doc.addImage(targets[i].processed, 'JPEG', 0, 0, 210, 297);
-          setState({ status: 'processing', progress: Math.round((i/targets.length)*90), message: `Adding Page ${i+1}...` });
+        const jspdfLib = (window as any).jspdf;
+        const jsPDF = jspdfLib.jsPDF || jspdfLib;
+
+        // FIX: "Enable Password Protection" toggle used to do nothing — now it actually
+        // encrypts the PDF via jsPDF's built-in encryption support.
+        const pdfOptions: any = { orientation: 'p', unit: 'mm', format: 'a4' };
+        if (enablePassword) {
+          const userPassword = window.prompt('Set a password for this PDF:');
+          if (userPassword) {
+            pdfOptions.encryption = {
+              userPassword,
+              ownerPassword: userPassword,
+              userPermissions: ['print', 'modify', 'copy', 'annot-forms'],
+            };
+          }
         }
-        const blob = doc.output('blob');
-        setState({ 
-          status: 'success', 
-          resultUrl: URL.createObjectURL(blob), 
-          resultFileName: `${folderName}.pdf`,
-          progress: 100 
-        });
+
+        if (saveSeparately) {
+          const zip = new JSZip();
+          for (let i = 0; i < targets.length; i++) {
+            const page = targets[i];
+            const doc = new jsPDF(pdfOptions);
+            // FIX: images used to be force-stretched to full A4, distorting non-A4-ratio photos
+            addImageFitted(doc, page);
+            const pdfBlob = doc.output('blob');
+            zip.file(`${page.name.replace(/\s+/g, '_')}.pdf`, pdfBlob);
+            setState({ status: 'processing', progress: 30 + Math.round(((i + 1) / targets.length) * 60), message: `Zipping ${page.name}...` });
+          }
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          setResult(zipBlob, `${folderName}.zip`);
+        } else {
+          const doc = new jsPDF(pdfOptions);
+          for (let i = 0; i < targets.length; i++) {
+            if (i > 0) doc.addPage();
+            addImageFitted(doc, targets[i]);
+            setState({ status: 'processing', progress: Math.round(((i + 1) / targets.length) * 90), message: `Adding ${targets[i].name}...` });
+          }
+          const blob = doc.output('blob');
+          setResult(blob, `${folderName}.pdf`);
+        }
       }
       setShowShareModal(false);
     } catch (e) {
@@ -330,7 +453,7 @@ const Scan: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Home <i className="fas fa-chevron-right mx-1 text-[7px]"></i></span>
                       {isRenamingFolder ? (
-                        <input 
+                        <input
                           autoFocus
                           defaultValue={folderName}
                           onBlur={(e) => { setFolderName(e.target.value || "New Document"); setIsRenamingFolder(false); }}
@@ -349,7 +472,7 @@ const Scan: React.FC = () => {
                  </div>
               </div>
               <div className="flex items-center gap-4">
-                 <button 
+                 <button
                   onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()); }}
                   className={`w-10 h-10 flex items-center justify-center text-lg transition-all active:scale-90 ${isSelectMode ? 'text-teal-400' : 'text-white/40'}`}
                  >
@@ -365,9 +488,9 @@ const Scan: React.FC = () => {
       {uiStep === 'gallery' && (
         <div className="flex-1 overflow-y-auto p-6 no-scrollbar pb-40 bg-[#020617]">
           <div className="grid grid-cols-3 gap-6">
-             {/* ADD PAGE CARD (Matches screenshot style) */}
+             {/* ADD PAGE CARD */}
              {!isSelectMode && (
-                <div 
+                <div
                   onClick={startCamera}
                   className="aspect-[3/4] rounded-2xl border-2 border-dashed border-white/10 bg-white/5 flex flex-col items-center justify-center text-white/40 active:scale-95 transition-all cursor-pointer hover:bg-white/10 hover:border-white/20"
                 >
@@ -380,13 +503,12 @@ const Scan: React.FC = () => {
 
              {capturedPages.map((p) => (
                <div key={p.id} className="flex flex-col animate-in zoom-in duration-300">
-                  <div 
+                  <div
                     onClick={() => isSelectMode ? toggleSelect(p.id) : (setPreviewPage(p), setUiStep('preview'))}
                     className={`relative aspect-[3/4] bg-white/5 rounded-2xl overflow-hidden shadow-2xl border-2 transition-all cursor-pointer ${selectedIds.has(p.id) ? 'border-teal-500 ring-4 ring-teal-500/20' : 'border-white/5'}`}
                   >
                      <img src={p.processed} className="w-full h-full object-cover" alt="" />
-                     
-                     {/* Blue Checkmark Badge */}
+
                      {selectedIds.has(p.id) && (
                         <div className="absolute inset-0 bg-teal-500/20 flex items-center justify-center animate-in fade-in duration-200">
                            <div className="w-12 h-12 bg-teal-500 rounded-full flex items-center justify-center text-white text-lg shadow-xl border-4 border-white">
@@ -395,18 +517,16 @@ const Scan: React.FC = () => {
                         </div>
                      )}
 
-                     {/* Overflow Menu Icon */}
                      <button className="absolute top-2 right-2 w-7 h-7 bg-black/20 backdrop-blur-md rounded-full flex items-center justify-center text-white text-[10px]">
                         <i className="fas fa-ellipsis-h"></i>
                      </button>
 
-                     {/* PDF Badge */}
                      <div className="absolute bottom-2 right-2 bg-white/10 backdrop-blur-md text-white text-[8px] font-black px-1.5 py-0.5 rounded-md border border-white/10 flex items-center gap-1 shadow-sm">
                         <span className="opacity-60">1</span>
                         <i className="fas fa-file-pdf text-teal-400"></i>
                      </div>
                   </div>
-                  
+
                   <div className="pt-2.5 px-1">
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="text-[10px] font-black text-white/80 uppercase truncate max-w-[60px]">{p.name}</span>
@@ -423,15 +543,15 @@ const Scan: React.FC = () => {
       {/* 3. FLOATING CAMERA & SHARE BUTTONS */}
       {uiStep === 'gallery' && !isSelectMode && (
         <div className="fixed bottom-12 right-8 flex flex-col items-end gap-5 z-[200]">
-           <button 
-            onClick={() => setShowShareModal(true)} 
+           <button
+            onClick={() => setShowShareModal(true)}
             disabled={capturedPages.length === 0}
             className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-2xl transition-all active:scale-90 ${capturedPages.length > 0 ? 'bg-white/10 text-white backdrop-blur-xl border border-white/10' : 'bg-white/5 text-white/10 cursor-not-allowed border border-white/5'}`}
            >
              <i className="fas fa-share-nodes"></i>
            </button>
-           <button 
-            onClick={startCamera} 
+           <button
+            onClick={startCamera}
             className="w-20 h-20 bg-teal-500 rounded-[2rem] flex items-center justify-center text-white text-3xl shadow-[0_20px_60px_-15px_rgba(20,184,166,0.6)] active:scale-90 transition-all border-4 border-white/20 hover:brightness-110"
            >
              <i className="fas fa-camera"></i>
@@ -442,19 +562,19 @@ const Scan: React.FC = () => {
       {/* 4. SELECTION FOOTER (Delete Button) */}
       {uiStep === 'gallery' && isSelectMode && (
         <div className="fixed bottom-0 left-0 right-0 bg-[#0f172a] p-8 pb-14 border-t border-white/5 flex gap-5 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-[300] animate-in slide-in-from-bottom duration-300">
-           <button 
+           <button
              onClick={() => {
                 setCapturedPages(prev => prev.filter(p => !selectedIds.has(p.id)));
                 setSelectedIds(new Set());
                 setIsSelectMode(false);
-             }} 
-             disabled={selectedIds.size === 0} 
+             }}
+             disabled={selectedIds.size === 0}
              className="flex-1 bg-rose-500/10 text-rose-500 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest disabled:opacity-20 active:scale-95 transition-all border border-rose-500/20 flex items-center justify-center gap-3"
            >
              <i className="fas fa-trash-alt"></i> DELETE ({selectedIds.size})
            </button>
-           <button 
-             onClick={() => { setIsSelectMode(false); setSelectedIds(new Set()); }} 
+           <button
+             onClick={() => { setIsSelectMode(false); setSelectedIds(new Set()); }}
              className="flex-1 bg-white/5 text-white/40 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest active:scale-95 transition-all border border-white/5"
            >
              CANCEL
@@ -465,16 +585,15 @@ const Scan: React.FC = () => {
       {/* 5. FULLSCREEN CAMERA INTERFACE */}
       {uiStep === 'camera' && (
         <div className="absolute inset-0 z-[500] flex flex-col bg-black animate-in fade-in duration-300 overflow-hidden">
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            muted 
-            className="absolute inset-0 w-full h-full object-cover" 
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover"
             onLoadedMetadata={() => videoRef.current?.play()}
           ></video>
 
-          {/* Camera Overlays */}
           <div className="absolute top-12 left-0 right-0 px-8 flex justify-between items-center z-[510]">
             <button onClick={stopCamera} className="w-12 h-12 bg-black/40 backdrop-blur-md rounded-full text-white active:scale-90 transition-transform flex items-center justify-center border border-white/10">
               <i className="fas fa-times text-xl"></i>
@@ -487,8 +606,7 @@ const Scan: React.FC = () => {
               <i className={`fas ${isFlashOn ? 'fa-bolt' : 'fa-bolt-slash'}`}></i>
             </button>
           </div>
-          
-          {/* Scanning Guide (Optional visual cue) */}
+
           {isAutoMode && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                <div className="w-[80%] aspect-[3/4] border-2 border-teal-500/30 rounded-3xl relative">
@@ -505,16 +623,15 @@ const Scan: React.FC = () => {
              <div className="w-16 h-16 rounded-2xl border-2 border-white/20 overflow-hidden bg-black/40 backdrop-blur-md cursor-pointer flex items-center justify-center" onClick={() => setUiStep('gallery')}>
                 {capturedPages.length > 0 ? <img src={capturedPages[capturedPages.length-1].processed} className="w-full h-full object-cover" alt="" /> : <i className="fas fa-images text-white/20"></i>}
              </div>
-             
-             {/* SHUTTER BUTTON */}
-             <button 
-              onClick={capturePhoto} 
+
+             <button
+              onClick={capturePhoto}
               className="w-24 h-24 rounded-full border-[8px] border-white/20 p-2 active:scale-95 transition-all shadow-2xl group relative"
              >
                 <div className="w-full h-full bg-white rounded-full group-hover:scale-95 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.3)]"></div>
                 {isAutoMode && <div className="absolute -inset-2 border-2 border-teal-500 rounded-full animate-ping opacity-20"></div>}
              </button>
-             
+
              <button onClick={() => setUiStep('gallery')} className="w-16 h-16 flex flex-col items-center justify-center text-white bg-black/40 backdrop-blur-md rounded-2xl border border-white/20 active:scale-95 transition-all">
                 <span className="text-xl font-black">{capturedPages.length}</span>
                 <span className="text-[8px] font-black uppercase tracking-widest opacity-40">Docs</span>
@@ -526,21 +643,22 @@ const Scan: React.FC = () => {
       {/* 6. IMAGE PREVIEW & EDITOR STEP */}
       {uiStep === 'preview' && previewPage && (
         <div className="absolute inset-0 z-[600] bg-[#020617] flex flex-col animate-in slide-in-from-right duration-300">
-           {/* Preview Header */}
            <div className="pt-12 pb-4 px-6 border-b border-white/5 flex items-center justify-between bg-black/40 backdrop-blur-xl">
               <button onClick={() => setUiStep('gallery')} className="w-10 h-10 flex items-center justify-center text-white/60 text-xl active:scale-90 transition-transform">
                 <i className="fas fa-times"></i>
               </button>
               <h3 className="text-xs font-black uppercase tracking-widest text-teal-400">{previewPage.name}</h3>
-              <button 
-                onClick={() => applyFilterAndCrop(previewPage.id, previewPage.filter, isCropping)}
+              <button
+                onClick={async () => {
+                  await applyFilterAndCrop(previewPage.id, previewPage.filter, isCropping);
+                  setUiStep('gallery');
+                }}
                 className="bg-teal-500 text-black px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-teal-500/20 active:scale-95 transition-all"
               >
                 Save
               </button>
            </div>
 
-           {/* Editor Workspace */}
            <div className="flex-1 relative bg-black overflow-hidden flex items-center justify-center">
               {isCropping ? (
                 <div className="absolute inset-0">
@@ -559,9 +677,7 @@ const Scan: React.FC = () => {
               )}
            </div>
 
-           {/* Editor Controls */}
            <div className="bg-[#0f172a] p-6 pb-12 border-t border-white/5 flex flex-col gap-6">
-              {/* Filter Selection */}
               <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-2">
                  {[
                    { id: 'none', label: 'Original', icon: 'fa-image' },
@@ -570,7 +686,7 @@ const Scan: React.FC = () => {
                    { id: 'bw', label: 'B&W', icon: 'fa-circle-half-stroke' },
                    { id: 'grayscale', label: 'Gray', icon: 'fa-palette' },
                  ].map((f) => (
-                   <button 
+                   <button
                     key={f.id}
                     onClick={() => applyFilterAndCrop(previewPage.id, f.id as ScanFilter)}
                     className={`flex flex-col items-center gap-2 min-w-[70px] transition-all active:scale-90 ${previewPage.filter === f.id ? 'text-teal-400' : 'text-white/30'}`}
@@ -583,15 +699,14 @@ const Scan: React.FC = () => {
                  ))}
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-4">
-                 <button 
+                 <button
                   onClick={() => setIsCropping(!isCropping)}
                   className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${isCropping ? 'bg-orange-500 text-white' : 'bg-white/5 text-white/60 border border-white/10'}`}
                  >
                     <i className="fas fa-crop-simple"></i> {isCropping ? 'Done Cropping' : 'Crop Image'}
                  </button>
-                 <button 
+                 <button
                   onClick={() => {
                     setCapturedPages(prev => prev.filter(p => p.id !== previewPage.id));
                     setUiStep('gallery');
@@ -605,7 +720,7 @@ const Scan: React.FC = () => {
         </div>
       )}
 
-      {/* 6. SHARE MODAL (Fidelity to Screenshot 2) */}
+      {/* 7. SHARE MODAL */}
       {showShareModal && (
         <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-xl animate-in fade-in flex items-end">
            <div className="w-full bg-white text-slate-900 rounded-t-[3rem] p-8 pb-16 animate-in slide-in-from-bottom duration-500 max-w-2xl mx-auto shadow-2xl flex flex-col gap-8">
@@ -630,14 +745,15 @@ const Scan: React.FC = () => {
 
                  {[
                    { label: 'Save Separately (ZIP File)', value: saveSeparately, setter: setSaveSeparately },
-                   { label: 'Enable Password Protection', value: enablePassword, setter: setEnablePassword },
-                   { label: 'Extract OCR Text (Pro)', value: enableOCR, setter: setEnableOCR },
+                   { label: 'Enable Password Protection', value: enablePassword, setter: setEnablePassword, disabled: exportFormat === 'JPG' },
+                   { label: 'Extract OCR Text (Pro — coming soon)', value: enableOCR, setter: setEnableOCR, disabled: true },
                  ].map((item, idx) => (
-                   <div key={idx} className="flex items-center justify-between py-3.5 border-b border-slate-50">
+                   <div key={idx} className={`flex items-center justify-between py-3.5 border-b border-slate-50 ${item.disabled ? 'opacity-40' : ''}`}>
                       <span className="text-sm font-bold text-slate-700">{item.label}</span>
-                      <button 
-                        onClick={() => item.setter(!item.value)} 
-                        className={`w-12 h-6 rounded-full transition-all relative ${item.value ? 'bg-blue-500' : 'bg-slate-200'}`}
+                      <button
+                        disabled={item.disabled}
+                        onClick={() => item.setter(!item.value)}
+                        className={`w-12 h-6 rounded-full transition-all relative ${item.value ? 'bg-blue-500' : 'bg-slate-200'} ${item.disabled ? 'cursor-not-allowed' : ''}`}
                       >
                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all shadow-sm ${item.value ? 'left-7' : 'left-1'}`}></div>
                       </button>
@@ -653,7 +769,7 @@ const Scan: React.FC = () => {
         </div>
       )}
 
-      {/* 7. PROCESSING & SUCCESS OVERLAYS */}
+      {/* 8. PROCESSING & SUCCESS OVERLAYS */}
       {(state.status === 'processing' || state.status === 'loading') && (
         <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-12 text-center text-white animate-in fade-in">
            <div className="relative w-32 h-32 mb-10">
