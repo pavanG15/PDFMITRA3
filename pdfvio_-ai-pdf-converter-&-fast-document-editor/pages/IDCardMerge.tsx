@@ -3,6 +3,7 @@ import { ProcessingState } from '../types';
 import { useLanguage } from '../i18n';
 import LiveA4Preview from '../components/LiveA4Preview';
 import CameraModal from '../components/CameraModal';
+import CardCropModal from '../components/CardCropModal';
 
 declare const jspdf: any;
 
@@ -18,6 +19,11 @@ const IDCardMerge: React.FC = () => {
   const [cameraModalOpen, setCameraModalOpen] = useState<boolean>(false);
   const [cameraTargetSide, setCameraTargetSide] = useState<'front' | 'back'>('front');
 
+  // Manual crop fine-tuning modal state
+  const [cropModalOpen, setCropModalOpen] = useState<boolean>(false);
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [cropTargetSide, setCropTargetSide] = useState<'front' | 'back'>('front');
+
   // Hidden native file/camera inputs
   const frontFileInputRef = useRef<HTMLInputElement>(null);
   const frontCameraInputRef = useRef<HTMLInputElement>(null);
@@ -32,8 +38,11 @@ const IDCardMerge: React.FC = () => {
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        if (side === 'front') setFrontImage(event.target?.result as string);
-        else setBackImage(event.target?.result as string);
+        const raw = event.target?.result as string;
+        // Open manual crop modal so user can adjust edges before adding
+        setCropTargetSide(side);
+        setImageToCrop(raw);
+        setCropModalOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -63,11 +72,20 @@ const IDCardMerge: React.FC = () => {
   };
 
   const handleCameraCapture = (dataUrl: string) => {
-    if (cameraTargetSide === 'front') {
-      setFrontImage(dataUrl);
+    // Open fine-tune crop modal with the captured guide-box cropped image
+    setCropTargetSide(cameraTargetSide);
+    setImageToCrop(dataUrl);
+    setCropModalOpen(true);
+  };
+
+  const handleCropDone = (croppedDataUrl: string) => {
+    if (cropTargetSide === 'front') {
+      setFrontImage(croppedDataUrl);
     } else {
-      setBackImage(dataUrl);
+      setBackImage(croppedDataUrl);
     }
+    setCropModalOpen(false);
+    setImageToCrop(null);
   };
 
   const rotateImage = (side: 'front' | 'back') => {
@@ -109,18 +127,18 @@ const IDCardMerge: React.FC = () => {
       const pageWidth = 210;
       const pageHeight = 297;
 
-      // Standard ID card aspect ratio 85.6mm / 53.98mm = ~1.586
-      const aspectRatio = 1.586;
-      let cardWidth = cardLayout === 'standard' ? 100 : 160;
-      let cardHeight = cardWidth / aspectRatio;
+      // Standard ISO ID-1 card size: 85.6 mm x 54 mm (exact 1:1 wallet card print size)
+      // Large layout: 110 mm x 69.4 mm
+      const slotWidth = cardLayout === 'standard' ? 85.6 : 110;
+      const slotHeight = cardLayout === 'standard' ? 54 : 69.4;
 
       // Calculate vertical centering
-      const gap = 16;
-      const totalHeight = (cardHeight * 2) + gap;
-      const startX = (pageWidth - cardWidth) / 2;
+      const gap = 14;
+      const totalHeight = (slotHeight * 2) + gap;
+      const startX = (pageWidth - slotWidth) / 2;
       const startY = Math.max(25, (pageHeight - totalHeight) / 2);
 
-      // Helper to draw cut border
+      // Helper to draw cut border around standard slot
       const drawCutGuide = (x: number, y: number, w: number, h: number) => {
         if (!addCutGuides) return;
         doc.setDrawColor(180, 180, 180);
@@ -129,22 +147,53 @@ const IDCardMerge: React.FC = () => {
         doc.setLineDashPattern([], 0);
       };
 
+      // Helper to render image with object-fit: contain inside slotWidth x slotHeight
+      const addContainedImage = async (imgData: string, slotX: number, slotY: number) => {
+        const { w, h } = await new Promise<{ w: number; h: number }>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ w: img.width, h: img.height });
+          img.onerror = () => resolve({ w: slotWidth, h: slotHeight });
+          img.src = imgData;
+        });
+
+        const imgAspect = w / h;
+        const slotAspect = slotWidth / slotHeight;
+
+        let renderW = slotWidth;
+        let renderH = slotHeight;
+
+        if (imgAspect > slotAspect) {
+          // Wider than slot: constrain width
+          renderW = slotWidth;
+          renderH = slotWidth / imgAspect;
+        } else {
+          // Taller than slot: constrain height
+          renderH = slotHeight;
+          renderW = slotHeight * imgAspect;
+        }
+
+        const posX = slotX + (slotWidth - renderW) / 2;
+        const posY = slotY + (slotHeight - renderH) / 2;
+
+        doc.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
+      };
+
       // Front card label
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setTextColor(100, 116, 139);
       doc.text("FRONT SIDE (समोरची बाजू)", startX, startY - 3);
 
-      // Add Front Image
-      doc.addImage(frontImage, 'JPEG', startX, startY, cardWidth, cardHeight);
-      drawCutGuide(startX, startY, cardWidth, cardHeight);
+      // Add Front Image with object-fit: contain & cut guide
+      await addContainedImage(frontImage, startX, startY);
+      drawCutGuide(startX, startY, slotWidth, slotHeight);
 
       // Back card label
-      const backY = startY + cardHeight + gap;
+      const backY = startY + slotHeight + gap;
       doc.text("BACK SIDE (मागील बाजू)", startX, backY - 3);
 
-      // Add Back Image
-      doc.addImage(backImage, 'JPEG', startX, backY, cardWidth, cardHeight);
-      drawCutGuide(startX, backY, cardWidth, cardHeight);
+      // Add Back Image with object-fit: contain & cut guide
+      await addContainedImage(backImage, startX, backY);
+      drawCutGuide(startX, backY, slotWidth, slotHeight);
 
       const blob = doc.output('blob');
       const url = URL.createObjectURL(blob);
@@ -203,6 +252,18 @@ const IDCardMerge: React.FC = () => {
         sideTitle={cameraTargetSide === 'front' ? t('frontSide') : t('backSide')}
       />
 
+      {/* Manual Fine-Tune Crop Modal (drag handles, zoom, rotate 90°) */}
+      <CardCropModal
+        isOpen={cropModalOpen}
+        imageSrc={imageToCrop}
+        onClose={() => {
+          setCropModalOpen(false);
+          setImageToCrop(null);
+        }}
+        onCropDone={handleCropDone}
+        sideTitle={cropTargetSide === 'front' ? t('frontSide') : t('backSide')}
+      />
+
       {/* Header - Clean, Focused, Minimal Text */}
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 mb-2.5">
@@ -251,7 +312,7 @@ const IDCardMerge: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            {t('standardId')}
+            {t('standardId')} (85.6 × 54 mm)
           </button>
           <button
             type="button"
@@ -262,7 +323,7 @@ const IDCardMerge: React.FC = () => {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            {t('fullWidth')}
+            {t('fullWidth')} (110 × 69.4 mm)
           </button>
         </div>
 
@@ -309,10 +370,23 @@ const IDCardMerge: React.FC = () => {
             {frontImage ? (
               /* Image Uploaded State */
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
-                <div className="relative w-full sm:w-44 aspect-[1.586/1] bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0">
+                <div className="relative w-full sm:w-44 aspect-[85.6/54] bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0">
                   <img src={frontImage} alt="Front Aadhaar" className="w-full h-full object-contain" />
                 </div>
                 <div className="flex flex-wrap sm:flex-col gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCropTargetSide('front');
+                      setImageToCrop(frontImage);
+                      setCropModalOpen(true);
+                    }}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
+                    title="Crop & Fine-Tune"
+                  >
+                    <i className="fas fa-crop-simple"></i>
+                    <span>{language === 'mr' ? 'क्रॉप करा' : language === 'hi' ? 'क्रॉप करें' : 'Crop'}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => openCameraForSide('front')}
@@ -400,10 +474,23 @@ const IDCardMerge: React.FC = () => {
             {backImage ? (
               /* Image Uploaded State */
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
-                <div className="relative w-full sm:w-44 aspect-[1.586/1] bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0">
+                <div className="relative w-full sm:w-44 aspect-[85.6/54] bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0">
                   <img src={backImage} alt="Back Aadhaar" className="w-full h-full object-contain" />
                 </div>
                 <div className="flex flex-wrap sm:flex-col gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCropTargetSide('back');
+                      setImageToCrop(backImage);
+                      setCropModalOpen(true);
+                    }}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 transition-colors"
+                    title="Crop & Fine-Tune"
+                  >
+                    <i className="fas fa-crop-simple"></i>
+                    <span>{language === 'mr' ? 'क्रॉप करा' : language === 'hi' ? 'क्रॉप करें' : 'Crop'}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => openCameraForSide('back')}
@@ -479,27 +566,40 @@ const IDCardMerge: React.FC = () => {
 
           {/* Merge Action Button */}
           {state.status !== 'success' && (
-            <button
-              onClick={mergeToPDF}
-              disabled={!frontImage || !backImage || state.status === 'processing'}
-              className={`w-full py-4 sm:py-5 rounded-2xl font-black text-base sm:text-lg shadow-xl transition-all flex items-center justify-center gap-3 ${
-                frontImage && backImage
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-98 shadow-blue-500/25 cursor-pointer'
-                  : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              {state.status === 'processing' ? (
-                <>
-                  <i className="fas fa-spinner fa-spin"></i>
-                  <span>{state.message || t('generatingPdf')}</span>
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-file-pdf"></i>
-                  <span>{t('mergeActionBtn')}</span>
-                </>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={mergeToPDF}
+                disabled={!frontImage || !backImage || state.status === 'processing'}
+                className={`w-full py-4 sm:py-5 rounded-2xl font-black text-base sm:text-lg shadow-xl transition-all flex items-center justify-center gap-3 ${
+                  frontImage && backImage
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-98 shadow-blue-500/25 cursor-pointer ring-4 ring-blue-500/20'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                }`}
+              >
+                {state.status === 'processing' ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    <span>{state.message || t('generatingPdf')}</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-file-pdf"></i>
+                    <span>{t('mergeActionBtn')}</span>
+                  </>
+                )}
+              </button>
+
+              {(!frontImage || !backImage) && (
+                <p className="text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <i className="fas fa-info-circle text-blue-500 mr-1.5"></i>
+                  {!frontImage && !backImage
+                    ? (language === 'mr' ? 'A4 PDF बनवण्यासाठी दोन्ही बाजू (Front आणि Back) फोटो निवडा किंवा कॅमेऱ्याने काढा' : language === 'hi' ? 'A4 PDF बनाने के लिए दोनों तरफ (Front और Back) की फोटो जोड़ें' : 'Please upload or capture both Front and Back sides to merge into A4 PDF')
+                    : !frontImage
+                    ? (language === 'mr' ? 'कृपया समोरची बाजू (Front Side) फोटो जोडा' : language === 'hi' ? 'कृपया सामने की फोटो (Front Side) जोड़ें' : 'Please add Front Side photo')
+                    : (language === 'mr' ? 'कृपया मागील बाजू (Back Side) फोटो जोडा' : language === 'hi' ? 'कृपया पीछे की फोटो (Back Side) जोड़ें' : 'Please add Back Side photo')}
+                </p>
               )}
-            </button>
+            </div>
           )}
 
           {/* Clean 1-Line Privacy Assurance */}

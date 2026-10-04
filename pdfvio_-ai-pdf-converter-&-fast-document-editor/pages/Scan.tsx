@@ -292,6 +292,7 @@ const Scan: React.FC = () => {
       pageCounterRef.current += 1;
       const newPage: CapturedPage = {
         original: imageSrc,
+        processed: processedData,
         // FIX: default filter is now 'none' to match the unmodified processed
         // image actually stored here. Previously this said 'bw' even though
         // no B&W conversion had been applied yet, so opening the editor showed
