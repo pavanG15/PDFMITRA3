@@ -1,11 +1,16 @@
 import React from 'react';
 import { useLanguage } from '../i18n';
 import AadhaarCardMockup from './AadhaarCardMockup';
+import {
+  CardLayoutType,
+  CARD_SIZES,
+  getA4CardLayout,
+} from '../cardLayoutConfig';
 
 interface LiveA4PreviewProps {
   frontImage: string | null;
   backImage: string | null;
-  cardLayout: 'standard' | 'large';
+  cardLayout: CardLayoutType;
   addCutGuides: boolean;
 }
 
@@ -15,11 +20,9 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
   cardLayout,
   addCutGuides,
 }) => {
-  const { t } = useLanguage();
-
-  // Standard width: 85.6mm on 210mm paper = ~41% (scaled for clear preview)
-  // Large width: 110mm on 210mm paper = ~52%
-  const cardWidthClass = cardLayout === 'standard' ? 'w-[64%] max-w-[230px]' : 'w-[82%] max-w-[295px]';
+  const { t, language } = useLanguage();
+  const layout = getA4CardLayout(cardLayout);
+  const sizeConfig = CARD_SIZES[cardLayout] || CARD_SIZES.standard;
 
   return (
     <div className="flex flex-col items-center w-full">
@@ -32,77 +35,108 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
           </span>
         </div>
         <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-          {t('a4PageHint')}
+          {sizeConfig.shortLabel}
         </span>
       </div>
 
-      {/* Realistic A4 Sheet Representation (Aspect Ratio 210 x 297) */}
-      <div className="relative w-full max-w-[380px] aspect-[210/297] bg-white rounded-xl shadow-2xl ring-1 ring-slate-300 dark:ring-slate-700 p-4 sm:p-6 flex flex-col justify-between items-center overflow-hidden transition-all select-none">
-        {/* Subtle Watermark or Page Border */}
-        <div className="w-full flex items-center justify-between text-[8px] font-black text-slate-400/80 tracking-wider uppercase border-b border-slate-100 pb-1">
+      {/* Realistic A4 Sheet Representation (Aspect Ratio 210 x 297 mm) */}
+      <div className="relative w-full max-w-[390px] aspect-[210/297] bg-white rounded-xl shadow-2xl ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden select-none transition-all">
+        {/* Subtle Watermark or Page Border Header */}
+        <div className="absolute top-0 left-0 right-0 px-4 py-2 flex items-center justify-between text-[8px] font-black text-slate-400 tracking-wider uppercase border-b border-slate-100 bg-slate-50/50 z-10">
           <span>A4 SINGLE PAGE • 300 DPI</span>
-          <span>{cardLayout === 'standard' ? '85.6 × 54 mm (Standard)' : '110 × 69.4 mm (Large)'}</span>
+          <span>{sizeConfig.name}</span>
         </div>
 
-        {/* Center Content: Both Cards Stacked */}
-        <div className="w-full flex flex-col items-center justify-center my-auto space-y-3 sm:space-y-5">
-          {/* Front Card Section */}
-          <div className={`flex flex-col items-start transition-all duration-300 ${cardWidthClass}`}>
-            <div className="flex items-center justify-between w-full mb-1">
-              <span className="text-[8px] sm:text-[9px] font-black text-slate-700 tracking-wider uppercase flex items-center gap-1">
-                <i className="fas fa-scissors text-[7px] text-slate-400"></i> {t('frontSideLabel')}
-              </span>
-            </div>
-            <div
-              className={`w-full aspect-[85.6/54] rounded overflow-hidden flex items-center justify-center relative transition-all ${
-                addCutGuides
-                  ? 'p-0.5 border border-dashed border-slate-400 shadow-sm'
-                  : 'border border-slate-200 shadow-sm'
-              }`}
-            >
-              {frontImage ? (
-                <img
-                  src={frontImage}
-                  alt="Front Side Preview"
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                /* Authentic Front Aadhaar Card Mockup */
-                <AadhaarCardMockup side="front" />
-              )}
-            </div>
-          </div>
+        {/* FRONT SIDE LABEL */}
+        <div
+          className="absolute flex items-center justify-between text-slate-500 font-bold overflow-hidden"
+          style={{
+            top: `${layout.preview.frontLabelTopPct}%`,
+            left: `${layout.preview.leftPct}%`,
+            width: `${layout.preview.slotWidthPct}%`,
+            height: `${layout.preview.labelHeightPct}%`,
+          }}
+        >
+          <span className="text-[8px] sm:text-[9px] font-black tracking-wider uppercase flex items-center gap-1 text-slate-600">
+            <i className="fas fa-scissors text-[7px] text-slate-400"></i>
+            <span>FRONT SIDE {language === 'mr' ? '(समोरची बाजू)' : language === 'hi' ? '(सामने की फोटो)' : ''}</span>
+          </span>
+          <span className="text-[7.5px] font-mono text-slate-400">
+            {layout.slotWidthMm} × {layout.slotHeightMm} mm
+          </span>
+        </div>
 
-          {/* Back Card Section */}
-          <div className={`flex flex-col items-start transition-all duration-300 ${cardWidthClass}`}>
-            <div className="flex items-center justify-between w-full mb-1">
-              <span className="text-[8px] sm:text-[9px] font-black text-slate-700 tracking-wider uppercase flex items-center gap-1">
-                <i className="fas fa-scissors text-[7px] text-slate-400"></i> {t('backSideLabel')}
-              </span>
-            </div>
-            <div
-              className={`w-full aspect-[85.6/54] rounded overflow-hidden flex items-center justify-center relative transition-all ${
-                addCutGuides
-                  ? 'p-0.5 border border-dashed border-slate-400 shadow-sm'
-                  : 'border border-slate-200 shadow-sm'
-              }`}
-            >
-              {backImage ? (
-                <img
-                  src={backImage}
-                  alt="Back Side Preview"
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                /* Authentic Back Aadhaar Card Mockup */
-                <AadhaarCardMockup side="back" />
-              )}
-            </div>
-          </div>
+        {/* FRONT CARD SLOT */}
+        <div
+          className={`absolute rounded overflow-hidden flex items-center justify-center transition-all ${
+            addCutGuides
+              ? 'border-2 border-dashed border-slate-400 shadow-sm'
+              : 'border border-slate-200 shadow-sm'
+          }`}
+          style={{
+            top: `${layout.preview.frontSlotTopPct}%`,
+            left: `${layout.preview.leftPct}%`,
+            width: `${layout.preview.slotWidthPct}%`,
+            height: `${layout.preview.slotHeightPct}%`,
+          }}
+        >
+          {frontImage ? (
+            <img
+              src={frontImage}
+              alt="Front Side Preview"
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <AadhaarCardMockup side="front" />
+          )}
+        </div>
+
+        {/* BACK SIDE LABEL */}
+        <div
+          className="absolute flex items-center justify-between text-slate-500 font-bold overflow-hidden"
+          style={{
+            top: `${layout.preview.backLabelTopPct}%`,
+            left: `${layout.preview.leftPct}%`,
+            width: `${layout.preview.slotWidthPct}%`,
+            height: `${layout.preview.labelHeightPct}%`,
+          }}
+        >
+          <span className="text-[8px] sm:text-[9px] font-black tracking-wider uppercase flex items-center gap-1 text-slate-600">
+            <i className="fas fa-scissors text-[7px] text-slate-400"></i>
+            <span>BACK SIDE {language === 'mr' ? '(मागील बाजू)' : language === 'hi' ? '(पीछे की फोटो)' : ''}</span>
+          </span>
+          <span className="text-[7.5px] font-mono text-slate-400">
+            {layout.slotWidthMm} × {layout.slotHeightMm} mm
+          </span>
+        </div>
+
+        {/* BACK CARD SLOT */}
+        <div
+          className={`absolute rounded overflow-hidden flex items-center justify-center transition-all ${
+            addCutGuides
+              ? 'border-2 border-dashed border-slate-400 shadow-sm'
+              : 'border border-slate-200 shadow-sm'
+          }`}
+          style={{
+            top: `${layout.preview.backSlotTopPct}%`,
+            left: `${layout.preview.leftPct}%`,
+            width: `${layout.preview.slotWidthPct}%`,
+            height: `${layout.preview.slotHeightPct}%`,
+          }}
+        >
+          {backImage ? (
+            <img
+              src={backImage}
+              alt="Back Side Preview"
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <AadhaarCardMockup side="back" />
+          )}
         </div>
 
         {/* Bottom subtle indicator */}
-        <div className="w-full pt-1 border-t border-slate-100 flex items-center justify-between text-[7px] sm:text-[8px] font-bold text-slate-400 tracking-wider">
+        <div className="absolute bottom-0 left-0 right-0 px-4 py-1.5 border-t border-slate-100 flex items-center justify-between text-[7px] sm:text-[8px] font-bold text-slate-400 tracking-wider bg-slate-50/50">
           <span>XEROX & KYC PRINT READY</span>
           <span className="text-emerald-600 font-black">100% PRIVATE</span>
         </div>
