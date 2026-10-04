@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document Scanner Interface</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-active: #1e40af;
+      --primary-focus: rgba(37, 99, 235, 0.35);
+      --warning-bg: #fffbeb;
+      --warning-border: #fef3c7;
+      --warning-text: #92400e;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1120;
+        --card-bg: #1e293b;
+        --border: #334155;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --primary-active: #2563eb;
+        --primary-focus: rgba(96, 165, 250, 0.4);
+        --warning-bg: #451a03;
+        --warning-border: #78350f;
+        --warning-text: #fde68a;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 520px;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+    }
+
+    header h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 0.25rem;
+    }
+
+    main {
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    /* Requirement 1: Prominent Scan Document Button */
+    .btn-scan {
+      appearance: none;
+      border: none;
+      background-color: var(--primary);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      padding: 0.875rem 1.5rem;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-scan:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-scan:active {
+      background-color: var(--primary-active);
+      transform: scale(0.99);
+    }
+
+    .btn-scan:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 4px var(--primary-focus);
+    }
+
+    .btn-icon {
+      width: 20px;
+      height: 20px;
+      stroke-width: 2;
+    }
+
+    .status-banner {
+      display: none;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.8125rem;
+      border: 1px solid transparent;
+    }
+
+    .status-banner.warning {
+      display: block;
+      background-color: var(--warning-bg);
+      border-color: var(--warning-border);
+      color: var(--warning-text);
+    }
+
+    /* Requirement 3: Styled Image Preview Container */
+    .preview-card {
+      background-color: var(--bg);
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-md);
+      min-height: 280px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .preview-card.has-image {
+      border-style: solid;
+      background-color: transparent;
+      padding: 0;
+    }
+
+    .placeholder-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-muted);
+    }
+
+    .placeholder-icon {
+      width: 44px;
+      height: 44px;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      opacity: 0.6;
+    }
+
+    .placeholder-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .placeholder-desc {
+      font-size: 0.8125rem;
+      max-width: 260px;
+    }
+
+    .scanned-image {
+      display: none;
+      width: 100%;
+      height: auto;
+      max-height: 420px;
+      object-fit: contain;
+      border-radius: calc(var(--radius-md) - 2px);
+    }
+
+    .preview-meta {
+      display: none;
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .btn-text {
+      background: none;
+      border: none;
+      color: var(--primary);
+      font-size: 0.75rem;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0.25rem;
+    }
+
+    footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <header>
+      <h1>Document Management</h1>
+      <p>Scan and preview your physical document</p>
+    </header>
+
+    <main>
+      <div class="action-group">
+        <!-- 1. Prominent Scan Document Button -->
+        <button id="scanButton" class="btn-scan" type="button" onclick="openCamera()" aria-label="Scan Document">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span>Scan Document</span>
+        </button>
+
+        <div id="statusBanner" class="status-banner" role="status" aria-live="polite"></div>
+      </div>
+
+      <!-- 3. Image Preview Container -->
+      <figure id="previewContainer" class="preview-card" aria-label="Scanned Document Preview">
+        <div id="placeholderState" class="placeholder-content">
+          <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <p class="placeholder-title">No Document Scanned</p>
+          <p class="placeholder-desc">Tap "Scan Document" to activate your native camera scanner</p>
+        </div>
+
+        <img id="scannedImage" class="scanned-image" alt="Scanned Document Preview" />
+      </figure>
+
+      <div id="previewMeta" class="preview-meta">
+        <span id="scanTimestamp"></span>
+        <button type="button" class="btn-text" onclick="clearPreview()">Remove Image</button>
+      </div>
+    </main>
+
+    <footer>
+      <span>WebView Native Bridge Interface Ready</span>
+    </footer>
+  </div>
+
+  <script>
+    /**
+     * Requirement 2:
+     * Checks for a native Android bridge via 'window.AndroidScanner'
+     * and calls 'window.AndroidScanner.startScan()'.
+     * If not present, logs a helpful console message.
+     */
+    function openCamera() {
+      const statusBanner = document.getElementById('statusBanner');
+
+      if (window.AndroidScanner && typeof window.AndroidScanner.startScan === 'function') {
+        console.log('[NativeBridge] window.AndroidScanner detected. Initiating startScan()...');
+        if (statusBanner) {
+          statusBanner.className = 'status-banner';
+          statusBanner.textContent = '';
+        }
+        window.AndroidScanner.startScan();
+      } else {
+        const warning = '[NativeBridge] window.AndroidScanner is not present in this browser environment.';
+        console.warn(warning);
+
+        if (statusBanner) {
+          statusBanner.className = 'status-banner warning';
+          statusBanner.textContent = 'Native camera scanner bridge not found. Please open inside the Android app.';
+        }
+      }
+    }
+
+    /**
+     * Requirement 3:
+     * Global JavaScript callback function called by the Android native side.
+     * When called, displays the Base64 image inside the styled preview container.
+     *
+     * @param {string} base64Image - Base64 string or Data URI
+     */
+    window.onScanComplete = function(base64Image) {
+      if (!base64Image) {
+        console.warn('[onScanComplete] Received null or empty base64Image.');
+        return;
+      }
+
+      console.log('[onScanComplete] Scanned document payload received.');
+
+      // Normalize format (adds data URI scheme if raw base64 was passed)
+      const imageSrc = base64Image.startsWith('data:image')
+        ? base64Image
+        : 'data:image/jpeg;base64,' + base64Image;
+
+      const previewContainer = document.getElementById('previewContainer');
+      const placeholderState = document.getElementById('placeholderState');
+      const scannedImage = document.getElementById('scannedImage');
+      const previewMeta = document.getElementById('previewMeta');
+      const scanTimestamp = document.getElementById('scanTimestamp');
+      const statusBanner = document.getElementById('statusBanner');
+
+      // Update image display
+      scannedImage.src = imageSrc;
+      scannedImage.style.display = 'block';
+      placeholderState.style.display = 'none';
+      previewContainer.classList.add('has-image');
+
+      // Show metadata
+      if (previewMeta) previewMeta.style.display = 'flex';
+      if (scanTimestamp) scanTimestamp.textContent = 'Scanned: ' + new Date().toLocaleTimeString();
+
+      // Clear warning if present
+      if (statusBanner) {
+        statusBanner.className = 'status-banner';
+        statusBanner.textContent = '';
+      }
+    };
+
+    /**
+     * Helper to clear the preview
+     */
+    function clearPreview() {
+      const previewContainer = document.getElementById('previewContainer');
+      const placeholderState = document.getElementById('placeholderState');
+      const scannedImage = document.getElementById('scannedImage');
+      const previewMeta = document.getElementById('previewMeta');
+
+      scannedImage.src = '';
+      scannedImage.style.display = 'none';
+      placeholderState.style.display = 'flex';
+      previewContainer.classList.remove('has-image');
+      if (previewMeta) previewMeta.style.display = 'none';
+    }
+  </script>
+</body>
+</html>
