@@ -17,9 +17,9 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
 }) => {
   const { t } = useLanguage();
 
-  // Standard width: 100mm on 210mm paper = ~52%
-  // Large width: 160mm on 210mm paper = ~78%
-  const cardWidthClass = cardLayout === 'standard' ? 'w-[68%] max-w-[240px]' : 'w-[88%] max-w-[320px]';
+  // Standard width: 85.6mm on 210mm paper = ~41% (scaled for clear preview)
+  // Large width: 110mm on 210mm paper = ~52%
+  const cardWidthClass = cardLayout === 'standard' ? 'w-[64%] max-w-[230px]' : 'w-[82%] max-w-[295px]';
 
   return (
     <div className="flex flex-col items-center w-full">
@@ -41,7 +41,7 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
         {/* Subtle Watermark or Page Border */}
         <div className="w-full flex items-center justify-between text-[8px] font-black text-slate-400/80 tracking-wider uppercase border-b border-slate-100 pb-1">
           <span>A4 SINGLE PAGE • 300 DPI</span>
-          <span>{cardLayout === 'standard' ? '100 mm' : '160 mm'}</span>
+          <span>{cardLayout === 'standard' ? '85.6 × 54 mm (Standard)' : '110 × 69.4 mm (Large)'}</span>
         </div>
 
         {/* Center Content: Both Cards Stacked */}
@@ -54,7 +54,7 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
               </span>
             </div>
             <div
-              className={`w-full aspect-[1.586/1] rounded overflow-hidden flex items-center justify-center relative transition-all ${
+              className={`w-full aspect-[85.6/54] rounded overflow-hidden flex items-center justify-center relative transition-all ${
                 addCutGuides
                   ? 'p-0.5 border border-dashed border-slate-400 shadow-sm'
                   : 'border border-slate-200 shadow-sm'
@@ -81,7 +81,7 @@ const LiveA4Preview: React.FC<LiveA4PreviewProps> = ({
               </span>
             </div>
             <div
-              className={`w-full aspect-[1.586/1] rounded overflow-hidden flex items-center justify-center relative transition-all ${
+              className={`w-full aspect-[85.6/54] rounded overflow-hidden flex items-center justify-center relative transition-all ${
                 addCutGuides
                   ? 'p-0.5 border border-dashed border-slate-400 shadow-sm'
                   : 'border border-slate-200 shadow-sm'
