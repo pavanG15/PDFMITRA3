@@ -4,6 +4,12 @@ import { useLanguage } from '../i18n';
 import LiveA4Preview from '../components/LiveA4Preview';
 import CameraModal from '../components/CameraModal';
 import CardCropModal from '../components/CardCropModal';
+import {
+  CardLayoutType,
+  CARD_SIZES,
+  getA4CardLayout,
+  createBilingualLabelImage,
+} from '../cardLayoutConfig';
 
 declare const jspdf: any;
 
@@ -11,7 +17,7 @@ const IDCardMerge: React.FC = () => {
   const { t, language } = useLanguage();
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
-  const [cardLayout, setCardLayout] = useState<'standard' | 'large'>('standard');
+  const [cardLayout, setCardLayout] = useState<CardLayoutType>('standard');
   const [addCutGuides, setAddCutGuides] = useState<boolean>(true);
   const [state, setState] = useState<ProcessingState>({ status: 'idle', progress: 0 });
 
@@ -124,76 +130,105 @@ const IDCardMerge: React.FC = () => {
       const jsPDF = jspdfLib?.jsPDF || jspdfLib;
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
       
-      const pageWidth = 210;
-      const pageHeight = 297;
+      // Exact shared layout config (ensures PDF and Live Preview never differ)
+      const layout = getA4CardLayout(cardLayout);
 
-      // Standard ISO ID-1 card size: 85.6 mm x 54 mm (exact 1:1 wallet card print size)
-      // Large layout: 110 mm x 69.4 mm
-      const slotWidth = cardLayout === 'standard' ? 85.6 : 110;
-      const slotHeight = cardLayout === 'standard' ? 54 : 69.4;
-
-      // Calculate vertical centering
-      const gap = 14;
-      const totalHeight = (slotHeight * 2) + gap;
-      const startX = (pageWidth - slotWidth) / 2;
-      const startY = Math.max(25, (pageHeight - totalHeight) / 2);
-
-      // Helper to draw cut border around standard slot
+      // Helper to draw dashed cut border around exact card slot
       const drawCutGuide = (x: number, y: number, w: number, h: number) => {
         if (!addCutGuides) return;
-        doc.setDrawColor(180, 180, 180);
+        doc.setDrawColor(160, 174, 192); // light slate gray
+        doc.setLineWidth(0.35); // crisp thin cut guide line
         doc.setLineDashPattern([2, 2], 0);
-        doc.rect(x - 0.5, y - 0.5, w + 1, h + 1);
+        doc.rect(x, y, w, h);
         doc.setLineDashPattern([], 0);
       };
 
-      // Helper to render image with object-fit: contain inside slotWidth x slotHeight
-      const addContainedImage = async (imgData: string, slotX: number, slotY: number) => {
+      // Helper to render image with object-fit: contain inside the designated slot
+      const addContainedImage = async (
+        imgData: string,
+        slotX: number,
+        slotY: number,
+        slotW: number,
+        slotH: number
+      ) => {
         const { w, h } = await new Promise<{ w: number; h: number }>((resolve) => {
           const img = new Image();
           img.onload = () => resolve({ w: img.width, h: img.height });
-          img.onerror = () => resolve({ w: slotWidth, h: slotHeight });
+          img.onerror = () => resolve({ w: slotW, h: slotH });
           img.src = imgData;
         });
 
         const imgAspect = w / h;
-        const slotAspect = slotWidth / slotHeight;
+        const slotAspect = slotW / slotH;
 
-        let renderW = slotWidth;
-        let renderH = slotHeight;
+        let renderW = slotW;
+        let renderH = slotH;
 
         if (imgAspect > slotAspect) {
           // Wider than slot: constrain width
-          renderW = slotWidth;
-          renderH = slotWidth / imgAspect;
+          renderW = slotW;
+          renderH = slotW / imgAspect;
         } else {
           // Taller than slot: constrain height
-          renderH = slotHeight;
-          renderW = slotHeight * imgAspect;
+          renderH = slotH;
+          renderW = slotH * imgAspect;
         }
 
-        const posX = slotX + (slotWidth - renderW) / 2;
-        const posY = slotY + (slotHeight - renderH) / 2;
+        const posX = slotX + (slotW - renderW) / 2;
+        const posY = slotY + (slotH - renderH) / 2;
 
         doc.addImage(imgData, 'JPEG', posX, posY, renderW, renderH);
       };
 
-      // Front card label
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text("FRONT SIDE (समोरची बाजू)", startX, startY - 3);
+      // 1. FRONT SIDE LABEL (Rendered via high-DPI canvas to guarantee 100% Devanagari glyph accuracy)
+      const frontLabelImg = createBilingualLabelImage(
+        "FRONT SIDE",
+        language === 'mr' ? "समोरची बाजू" : language === 'hi' ? "सामने की फोटो" : "FRONT",
+        layout.slotWidthMm,
+        layout.labelHeightMm
+      );
+      if (frontLabelImg) {
+        doc.addImage(frontLabelImg, 'PNG', layout.startX, layout.frontLabelY, layout.slotWidthMm, layout.labelHeightMm);
+      } else {
+        doc.setFontSize(8.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text("FRONT SIDE", layout.startX, layout.frontLabelY + 3.5);
+      }
 
-      // Add Front Image with object-fit: contain & cut guide
-      await addContainedImage(frontImage, startX, startY);
-      drawCutGuide(startX, startY, slotWidth, slotHeight);
+      // 2. FRONT CARD IMAGE & CUT GUIDE
+      await addContainedImage(
+        frontImage,
+        layout.startX,
+        layout.frontSlotY,
+        layout.slotWidthMm,
+        layout.slotHeightMm
+      );
+      drawCutGuide(layout.startX, layout.frontSlotY, layout.slotWidthMm, layout.slotHeightMm);
 
-      // Back card label
-      const backY = startY + slotHeight + gap;
-      doc.text("BACK SIDE (मागील बाजू)", startX, backY - 3);
+      // 3. BACK SIDE LABEL (Rendered via high-DPI canvas to guarantee 100% Devanagari glyph accuracy)
+      const backLabelImg = createBilingualLabelImage(
+        "BACK SIDE",
+        language === 'mr' ? "मागील बाजू" : language === 'hi' ? "पीछे की फोटो" : "BACK",
+        layout.slotWidthMm,
+        layout.labelHeightMm
+      );
+      if (backLabelImg) {
+        doc.addImage(backLabelImg, 'PNG', layout.startX, layout.backLabelY, layout.slotWidthMm, layout.labelHeightMm);
+      } else {
+        doc.setFontSize(8.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text("BACK SIDE", layout.startX, layout.backLabelY + 3.5);
+      }
 
-      // Add Back Image with object-fit: contain & cut guide
-      await addContainedImage(backImage, startX, backY);
-      drawCutGuide(startX, backY, slotWidth, slotHeight);
+      // 4. BACK CARD IMAGE & CUT GUIDE
+      await addContainedImage(
+        backImage,
+        layout.startX,
+        layout.backSlotY,
+        layout.slotWidthMm,
+        layout.slotHeightMm
+      );
+      drawCutGuide(layout.startX, layout.backSlotY, layout.slotWidthMm, layout.slotHeightMm);
 
       const blob = doc.output('blob');
       const url = URL.createObjectURL(blob);
@@ -202,7 +237,7 @@ const IDCardMerge: React.FC = () => {
         status: 'success', 
         progress: 100, 
         resultUrl: url, 
-        resultFileName: 'Aadhaar_in_One_Page.pdf' 
+        resultFileName: `Aadhaar_${cardLayout === 'standard' ? 'Standard_85x54mm' : 'Large_110x69mm'}_in_One_Page.pdf` 
       });
     } catch (err) {
       console.error(err);
