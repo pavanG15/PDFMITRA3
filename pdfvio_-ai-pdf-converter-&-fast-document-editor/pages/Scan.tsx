@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Cropper from 'react-easy-crop';
 import { ProcessingState } from '../types';
 
@@ -55,6 +56,7 @@ const drawImageToFreshCanvas = (img: HTMLImageElement): HTMLCanvasElement => {
 };
 
 const Scan: React.FC = () => {
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +85,20 @@ const Scan: React.FC = () => {
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'PDF' | 'JPG'>('PDF');
+
+  // Top Bar 3-Dots Menu
+  const [showTopMenu, setShowTopMenu] = useState(false);
+
+  // Page Actions Bottom Sheet / Menu
+  const [selectedMenuPage, setSelectedMenuPage] = useState<CapturedPage | null>(null);
+
+  // Inline Page Rename State
+  const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  const [editingPageName, setEditingPageName] = useState<string>('');
+
+  // Page Rename Modal State
+  const [renameModalPage, setRenameModalPage] = useState<CapturedPage | null>(null);
+  const [renameInputVal, setRenameInputVal] = useState<string>('');
 
   // Share Modal Toggles
   const [enablePassword, setEnablePassword] = useState(false);
@@ -216,6 +232,111 @@ const Scan: React.FC = () => {
       setActiveTrack(null);
     }
     setUiStep('gallery');
+  };
+
+  // Back button handler: returns to previous UI step or navigates back to Home
+  const handleBack = () => {
+    if (uiStep === 'preview') {
+      setUiStep('gallery');
+    } else if (uiStep === 'camera') {
+      stopCamera();
+      setUiStep('gallery');
+    } else {
+      // In gallery mode: navigate back to Home / previous page
+      if (window.history.length > 1) {
+        navigate(-1);
+      } else {
+        navigate('/');
+      }
+    }
+  };
+
+  // Rename a page
+  const handleRenamePage = (pageId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setCapturedPages(prev => prev.map(p => p.id === pageId ? { ...p, name: trimmed } : p));
+    if (previewPage && previewPage.id === pageId) {
+      setPreviewPage(prev => prev ? { ...prev, name: trimmed } : null);
+    }
+    if (selectedMenuPage && selectedMenuPage.id === pageId) {
+      setSelectedMenuPage(prev => prev ? { ...prev, name: trimmed } : null);
+    }
+  };
+
+  // Rotate a page 90 degrees clockwise
+  const handleRotatePage = (pageId: string) => {
+    const targetPage = capturedPages.find(p => p.id === pageId);
+    if (!targetPage) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.height;
+      canvas.height = img.width;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((90 * Math.PI) / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+      const rotatedDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      setCapturedPages(prev => prev.map(p => {
+        if (p.id === pageId) {
+          return {
+            ...p,
+            processed: rotatedDataUrl,
+            original: rotatedDataUrl,
+            width: canvas.width,
+            height: canvas.height,
+          };
+        }
+        return p;
+      }));
+      if (previewPage && previewPage.id === pageId) {
+        setPreviewPage(prev => prev ? {
+          ...prev,
+          processed: rotatedDataUrl,
+          original: rotatedDataUrl,
+          width: canvas.width,
+          height: canvas.height,
+        } : null);
+      }
+      if (selectedMenuPage && selectedMenuPage.id === pageId) {
+        setSelectedMenuPage(prev => prev ? { ...prev, processed: rotatedDataUrl } : null);
+      }
+    };
+    img.src = targetPage.processed;
+  };
+
+  // Export single page directly
+  const handleExportSinglePage = async (page: CapturedPage, format: 'PDF' | 'JPG') => {
+    try {
+      if (format === 'JPG') {
+        const link = document.createElement('a');
+        link.href = page.processed;
+        link.download = `${page.name.replace(/\s+/g, '_')}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        const jspdfLib = (window as any).jspdf;
+        const jsPDF = jspdfLib?.jsPDF || jspdfLib;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        addImageFitted(doc, page);
+        const blob = doc.output('blob');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${page.name.replace(/\s+/g, '_')}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      console.error('Export single page error:', err);
+    }
   };
 
   // FIX: getCapabilities() isn't implemented in every browser (e.g. Safari, many desktop
@@ -574,12 +695,23 @@ const Scan: React.FC = () => {
         <div className="pt-12 pb-4 px-6 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl sticky top-0 z-[100]">
            <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                 <button onClick={() => uiStep === 'preview' ? setUiStep('gallery') : stopCamera()} className="w-10 h-10 flex items-center justify-center text-white/60 text-xl active:scale-90 transition-transform">
+                 <button
+                   type="button"
+                   onClick={handleBack}
+                   className="w-10 h-10 flex items-center justify-center text-white/70 hover:text-white text-xl active:scale-90 transition-transform cursor-pointer"
+                   title="Back"
+                 >
                    <i className="fas fa-arrow-left"></i>
                  </button>
                  <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Home <i className="fas fa-chevron-right mx-1 text-[7px]"></i></span>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/')}
+                        className="text-[10px] font-black text-white/40 uppercase tracking-widest cursor-pointer hover:text-white/80 transition-colors flex items-center"
+                      >
+                        Home <i className="fas fa-chevron-right mx-1 text-[7px]"></i>
+                      </button>
                       {isRenamingFolder ? (
                         <input
                           autoFocus
@@ -599,7 +731,7 @@ const Scan: React.FC = () => {
                     </h2>
                  </div>
               </div>
-              <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex items-center gap-2 sm:gap-4 relative">
                  <a
                    href="/scanner.html"
                    target="_blank"
@@ -611,12 +743,98 @@ const Scan: React.FC = () => {
                    <span className="hidden sm:inline">HTML Bridge Test</span>
                  </a>
                  <button
+                  type="button"
                   onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()); }}
                   className={`w-10 h-10 flex items-center justify-center text-lg transition-all active:scale-90 ${isSelectMode ? 'text-teal-400' : 'text-white/40'}`}
+                  title={isSelectMode ? 'Exit Select Mode' : 'Select Pages'}
                  >
                    <i className="fas fa-check-double"></i>
                  </button>
-                 <button className="w-10 h-10 flex items-center justify-center text-white/40 text-lg active:scale-90 transition-transform"><i className="fas fa-ellipsis-v"></i></button>
+                 <button
+                   type="button"
+                   onClick={() => setShowTopMenu(!showTopMenu)}
+                   className={`w-10 h-10 flex items-center justify-center text-lg active:scale-90 transition-transform ${showTopMenu ? 'text-teal-400' : 'text-white/40'}`}
+                   title="More Options"
+                 >
+                   <i className="fas fa-ellipsis-v"></i>
+                 </button>
+
+                 {/* Top Dropdown Menu */}
+                 {showTopMenu && (
+                   <>
+                     <div className="fixed inset-0 z-[150]" onClick={() => setShowTopMenu(false)}></div>
+                     <div className="absolute top-12 right-0 z-[160] w-56 bg-[#0f172a] border border-white/10 rounded-2xl p-2 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150 flex flex-col gap-1 text-left">
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setIsRenamingFolder(true);
+                           setShowTopMenu(false);
+                         }}
+                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-left text-xs font-bold text-white/80 hover:text-white"
+                       >
+                         <i className="fas fa-pen text-teal-400 w-4"></i>
+                         <span>Rename Project</span>
+                       </button>
+
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setIsSelectMode(true);
+                           setSelectedIds(new Set(capturedPages.map(p => p.id)));
+                           setShowTopMenu(false);
+                         }}
+                         disabled={capturedPages.length === 0}
+                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-left text-xs font-bold text-white/80 hover:text-white disabled:opacity-30"
+                       >
+                         <i className="fas fa-check-double text-blue-400 w-4"></i>
+                         <span>Select All Pages</span>
+                       </button>
+
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setShowShareModal(true);
+                           setShowTopMenu(false);
+                         }}
+                         disabled={capturedPages.length === 0}
+                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-left text-xs font-bold text-white/80 hover:text-white disabled:opacity-30"
+                       >
+                         <i className="fas fa-share-nodes text-emerald-400 w-4"></i>
+                         <span>Save &amp; Export PDF</span>
+                       </button>
+
+                       <div className="h-px bg-white/5 my-1"></div>
+
+                       <button
+                         type="button"
+                         onClick={() => {
+                           if (window.confirm('Delete all scanned pages?')) {
+                             setCapturedPages([]);
+                             setSelectedIds(new Set());
+                           }
+                           setShowTopMenu(false);
+                         }}
+                         disabled={capturedPages.length === 0}
+                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-rose-500/10 text-left text-xs font-bold text-rose-400 disabled:opacity-30"
+                       >
+                         <i className="fas fa-trash-can w-4"></i>
+                         <span>Clear All Pages</span>
+                       </button>
+
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setShowTopMenu(false);
+                           navigate('/');
+                         }}
+                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 text-left text-xs font-bold text-white/60 hover:text-white"
+                       >
+                         <i className="fas fa-house w-4"></i>
+                         <span>Back to Home</span>
+                       </button>
+                     </div>
+                   </>
+                 )}
               </div>
            </div>
         </div>
@@ -691,7 +909,15 @@ const Scan: React.FC = () => {
                         </div>
                      )}
 
-                     <button className="absolute top-2 right-2 w-7 h-7 bg-black/20 backdrop-blur-md rounded-full flex items-center justify-center text-white text-[10px]">
+                     <button
+                       type="button"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setSelectedMenuPage(p);
+                       }}
+                       className="absolute top-2 right-2 w-7 h-7 bg-black/40 hover:bg-teal-500 hover:text-black backdrop-blur-md rounded-full flex items-center justify-center text-white text-[10px] shadow-md transition-all active:scale-90 z-10 cursor-pointer"
+                       title="Page Options"
+                     >
                         <i className="fas fa-ellipsis-h"></i>
                      </button>
 
@@ -700,16 +926,74 @@ const Scan: React.FC = () => {
                      </div>
 
                      <div className="absolute bottom-2 right-2 bg-white/10 backdrop-blur-md text-white text-[8px] font-black px-1.5 py-0.5 rounded-md border border-white/10 flex items-center gap-1 shadow-sm">
-                        <span className="opacity-60">1</span>
+                        <span className="opacity-60">{index + 1}</span>
                         <i className="fas fa-file-pdf text-teal-400"></i>
                      </div>
                   </div>
 
-                  <div className="pt-2.5 px-1">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[10px] font-black text-white/80 uppercase truncate max-w-[60px]">{p.name}</span>
-                      <i className="fas fa-ellipsis-v text-[8px] text-white/20"></i>
-                    </div>
+                  <div className="pt-2 px-1">
+                    {editingPageId === p.id ? (
+                      <div className="flex items-center gap-1 w-full" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingPageName}
+                          onChange={(e) => setEditingPageName(e.target.value)}
+                          onBlur={() => {
+                            handleRenamePage(p.id, editingPageName);
+                            setEditingPageId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleRenamePage(p.id, editingPageName);
+                              setEditingPageId(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingPageId(null);
+                            }
+                          }}
+                          className="w-full text-[10px] font-black text-teal-300 bg-teal-950/80 border border-teal-400/50 rounded px-1.5 py-0.5 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleRenamePage(p.id, editingPageName);
+                            setEditingPageId(null);
+                          }}
+                          className="text-teal-400 text-xs px-1 hover:text-teal-200"
+                          title="Save Name"
+                        >
+                          <i className="fas fa-check"></i>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between mb-0.5 w-full">
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingPageId(p.id);
+                            setEditingPageName(p.name);
+                          }}
+                          className="flex items-center gap-1 cursor-pointer group/name truncate flex-1 mr-1"
+                          title="Click to rename page"
+                        >
+                          <span className="text-[10px] font-black text-white/90 uppercase truncate group-hover/name:text-teal-300 transition-colors">
+                            {p.name}
+                          </span>
+                          <i className="fas fa-pencil text-[7px] text-teal-400/40 group-hover/name:text-teal-400 transition-colors"></i>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedMenuPage(p);
+                          }}
+                          className="w-6 h-6 flex items-center justify-center text-white/40 hover:text-teal-400 transition-colors rounded-lg hover:bg-white/5 cursor-pointer"
+                          title="Page Options"
+                        >
+                          <i className="fas fa-ellipsis-v text-[9px]"></i>
+                        </button>
+                      </div>
+                    )}
                     <span className="text-[8px] font-bold text-white/20 uppercase tracking-tighter">{p.date}</span>
                   </div>
                </div>
@@ -825,7 +1109,18 @@ const Scan: React.FC = () => {
               <button onClick={() => setUiStep('gallery')} className="w-10 h-10 flex items-center justify-center text-white/60 text-xl active:scale-90 transition-transform">
                 <i className="fas fa-times"></i>
               </button>
-              <h3 className="text-xs font-black uppercase tracking-widest text-teal-400">{previewPage.name}</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setRenameModalPage(previewPage);
+                  setRenameInputVal(previewPage.name);
+                }}
+                className="text-xs font-black uppercase tracking-widest text-teal-400 flex items-center gap-1.5 hover:text-teal-300 transition-colors cursor-pointer"
+                title="Rename Page"
+              >
+                <span className="truncate max-w-[160px]">{previewPage.name}</span>
+                <i className="fas fa-pencil text-[8px] opacity-50"></i>
+              </button>
               <button
                 onClick={async () => {
                   await applyFilterAndCrop(previewPage.id, previewPage.filter, isCropping);
@@ -877,19 +1172,28 @@ const Scan: React.FC = () => {
                  ))}
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex gap-3">
                  <button
+                  type="button"
                   onClick={() => setIsCropping(!isCropping)}
-                  className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${isCropping ? 'bg-orange-500 text-white' : 'bg-white/5 text-white/60 border border-white/10'}`}
+                  className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer ${isCropping ? 'bg-orange-500 text-white' : 'bg-white/5 text-white/70 border border-white/10 hover:bg-white/10'}`}
                  >
-                    <i className="fas fa-crop-simple"></i> {isCropping ? 'Done Cropping' : 'Crop Image'}
+                    <i className="fas fa-crop-simple"></i> {isCropping ? 'Done' : 'Crop'}
                  </button>
                  <button
+                  type="button"
+                  onClick={() => handleRotatePage(previewPage.id)}
+                  className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                 >
+                    <i className="fas fa-rotate-right"></i> Rotate
+                 </button>
+                 <button
+                  type="button"
                   onClick={() => {
                     setCapturedPages(prev => prev.filter(p => p.id !== previewPage.id));
                     setUiStep('gallery');
                   }}
-                  className="flex-1 py-4 bg-rose-500/10 text-rose-500 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-rose-500/20 flex items-center justify-center gap-3"
+                  className="flex-1 py-4 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-rose-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                  >
                     <i className="fas fa-trash-alt"></i> Delete
                  </button>
@@ -946,6 +1250,173 @@ const Scan: React.FC = () => {
                  <button onClick={handleExport} className="flex-1 py-5 bg-[#1d3345] text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">SAVE & SHARE</button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* 7b. PAGE ACTIONS BOTTOM SHEET / MODAL */}
+      {selectedMenuPage && (
+        <div className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-[#0f172a] text-white border-t sm:border border-white/10 rounded-t-[2.5rem] sm:rounded-3xl p-6 pb-10 sm:pb-6 shadow-2xl flex flex-col gap-4 animate-in slide-in-from-bottom duration-200">
+            {/* Header with thumbnail */}
+            <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+              <img
+                src={selectedMenuPage.processed}
+                alt={selectedMenuPage.name}
+                className="w-12 h-16 object-cover rounded-xl border border-white/10 shadow shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-black text-white uppercase truncate">{selectedMenuPage.name}</h3>
+                <p className="text-[10px] text-white/40">{selectedMenuPage.date}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMenuPage(null)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 text-sm cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Menu Actions */}
+            <div className="grid grid-cols-1 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const page = selectedMenuPage;
+                  setSelectedMenuPage(null);
+                  setRenameModalPage(page);
+                  setRenameInputVal(page.name);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <i className="fas fa-pencil text-teal-400 w-5"></i>
+                <span>Rename Page</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewPage(selectedMenuPage);
+                  setUiStep('preview');
+                  setSelectedMenuPage(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <i className="fas fa-crop-simple text-blue-400 w-5"></i>
+                <span>Edit, Crop &amp; Filters</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleRotatePage(selectedMenuPage.id);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <i className="fas fa-rotate-right text-emerald-400 w-5"></i>
+                <span>Rotate 90° Clockwise</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleExportSinglePage(selectedMenuPage, 'PDF');
+                  setSelectedMenuPage(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <i className="fas fa-file-pdf text-amber-400 w-5"></i>
+                <span>Download this Page as PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleExportSinglePage(selectedMenuPage, 'JPG');
+                  setSelectedMenuPage(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <i className="fas fa-file-image text-cyan-400 w-5"></i>
+                <span>Download this Page as JPG</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const pageId = selectedMenuPage.id;
+                  setCapturedPages(prev => prev.filter(p => p.id !== pageId));
+                  setSelectedMenuPage(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs transition-all active:scale-98 border border-rose-500/20 cursor-pointer"
+              >
+                <i className="fas fa-trash-can w-5"></i>
+                <span>Delete Page</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7c. DEDICATED PAGE RENAME MODAL */}
+      {renameModalPage && (
+        <div className="fixed inset-0 z-[1200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-[#0f172a] text-white border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                <i className="fas fa-pencil text-teal-400"></i> Rename Page
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRenameModalPage(null)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/60 text-sm cursor-pointer"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-white/40">
+                Page Name
+              </label>
+              <input
+                autoFocus
+                type="text"
+                value={renameInputVal}
+                onChange={(e) => setRenameInputVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleRenamePage(renameModalPage.id, renameInputVal);
+                    setRenameModalPage(null);
+                  } else if (e.key === 'Escape') {
+                    setRenameModalPage(null);
+                  }
+                }}
+                placeholder="e.g. Aadhaar Front, Bill Page 1..."
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRenameModalPage(null)}
+                className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleRenamePage(renameModalPage.id, renameInputVal);
+                  setRenameModalPage(null);
+                }}
+                className="flex-1 py-3 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-teal-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
