@@ -558,7 +558,7 @@ const IDCardMerge: React.FC = () => {
     : null;
 
   return (
-    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-64 transition-colors duration-300">
+    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-28 sm:pb-24 transition-colors duration-300">
       {/* Hidden Native File Inputs */}
       <input
         type="file"
@@ -1156,6 +1156,14 @@ const IDCardMerge: React.FC = () => {
             onRemoveImage={handleRemoveImage}
           />
         </div>
+
+        {/* Warning Banner: In normal document flow below preview box, never overlapping */}
+        {missingPhotoHint && (
+          <div className="mt-3.5 w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-3 text-center text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center justify-center gap-2 shadow-xs transition-all">
+            <i className="fas fa-circle-exclamation text-amber-600 dark:text-amber-400 text-sm shrink-0"></i>
+            <span>{missingPhotoHint}</span>
+          </div>
+        )}
       </div>
 
       {/* SLIM ACTION BAR UNDER PAGE (WHEN CARD IS SELECTED) */}
@@ -1179,8 +1187,176 @@ const IDCardMerge: React.FC = () => {
         </div>
       )}
 
+      {/* DOWNLOAD & EXPORT SECTION (In normal document flow with clean spacing, full-width button, and high-contrast disabled state) */}
+      <div className="w-full my-4 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col gap-3">
+        {/* Download Options: Format (PDF vs JPG) & Compress Quality Level */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+          {/* Format Toggle (PDF vs JPG) */}
+          <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setDownloadFormat('pdf')}
+              className={`py-1.5 px-3 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
+                downloadFormat === 'pdf'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+              }`}
+            >
+              <i className="fas fa-file-pdf"></i>
+              <span>PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDownloadFormat('jpg')}
+              className={`py-1.5 px-3 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
+                downloadFormat === 'jpg'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+              }`}
+            >
+              <i className="fas fa-file-image"></i>
+              <span>JPG</span>
+            </button>
+          </div>
+
+          {/* Quality & Compress Selector */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase hidden xs:inline">
+              {language === 'mr' ? 'साईज:' : language === 'hi' ? 'साइज:' : 'Size:'}
+            </span>
+            <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-[10px]">
+              <button
+                type="button"
+                onClick={() => setCompressLevel('compressed')}
+                className={`py-1 px-2.5 rounded-lg font-black flex items-center gap-1 transition-all ${
+                  compressLevel === 'compressed'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+                title="Under 200 KB - For Online Forms / Job Applications"
+              >
+                <i className="fas fa-compress text-[9px]"></i>
+                <span>&lt;200 KB</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCompressLevel('standard')}
+                className={`py-1 px-2.5 rounded-lg font-black transition-all ${
+                  compressLevel === 'standard'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+                title="Standard ~400 KB"
+              >
+                <span>Medium</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCompressLevel('high')}
+                className={`py-1 px-2.5 rounded-lg font-black transition-all ${
+                  compressLevel === 'high'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+                title="300 DPI High Resolution - Best for Xerox / Print"
+              >
+                <span>300 DPI</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Download Buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleDownload()}
+            disabled={!hasBothImages || state.status === 'processing'}
+            className={`flex-1 py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 ${
+              hasBothImages
+                ? downloadFormat === 'pdf'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/30 ring-2 ring-blue-500/20 cursor-pointer'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/30 ring-2 ring-emerald-500/20 cursor-pointer'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-2 border-dashed border-slate-300 dark:border-slate-700 cursor-not-allowed shadow-none'
+            }`}
+          >
+            {state.status === 'processing' ? (
+              <>
+                <i className="fas fa-spinner fa-spin"></i>
+                <span>{state.message || 'Processing...'}</span>
+              </>
+            ) : (
+              <>
+                <i className={`fas ${downloadFormat === 'pdf' ? 'fa-file-pdf' : 'fa-file-image'} text-sm`}></i>
+                <span>
+                  {downloadFormat === 'pdf'
+                    ? language === 'mr'
+                      ? 'A4 PDF डाऊनलोड करा'
+                      : language === 'hi'
+                      ? 'A4 PDF डाउनलोड करें'
+                      : 'Download A4 PDF'
+                    : language === 'mr'
+                    ? 'A4 JPG डाऊनलोड करा'
+                    : language === 'hi'
+                    ? 'A4 JPG डाउनलोड करें'
+                    : 'Download A4 JPG'}
+                </span>
+                <span className="text-[10px] font-mono opacity-85 bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded">
+                  {compressLevel === 'compressed'
+                    ? '<200 KB'
+                    : compressLevel === 'standard'
+                    ? '~400 KB'
+                    : '300 DPI'}
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* Quick 1-tap Alternate format button (Download other format instantly) */}
+          <button
+            type="button"
+            onClick={() => handleDownload(downloadFormat === 'pdf' ? 'jpg' : 'pdf')}
+            disabled={!hasBothImages || state.status === 'processing'}
+            className="py-3.5 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-black text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs shrink-0"
+            title={
+              downloadFormat === 'pdf'
+                ? 'Download as JPG image instead'
+                : 'Download as PDF document instead'
+            }
+          >
+            <i className={`fas ${downloadFormat === 'pdf' ? 'fa-file-image text-emerald-500' : 'fa-file-pdf text-blue-500'}`}></i>
+            <span className="hidden xs:inline font-mono">
+              {downloadFormat === 'pdf' ? 'JPG' : 'PDF'}
+            </span>
+          </button>
+
+          {/* Share Button: appears once file is downloaded/ready */}
+          {state.status === 'success' && state.resultUrl && (
+            <button
+              type="button"
+              onClick={() =>
+                shareFileViaAndroidBridge(
+                  state.resultUrl!,
+                  state.resultFileName || 'Aadhaar_A4.pdf'
+                )
+              }
+              className="py-3.5 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400/30 animate-in zoom-in duration-300 cursor-pointer shrink-0"
+              title="Share file via Android Bridge"
+            >
+              <i className="fas fa-share-nodes text-sm"></i>
+              <span className="font-bold">
+                {language === 'mr' ? 'शेअर करा' : language === 'hi' ? 'शेयर करें' : 'Share'}
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* COLLAPSED "ADVANCED FINE-TUNING" ACCORDION */}
-      <div className="mb-6 flex justify-center">
+      <div className="mb-4 flex justify-center">
         <MoreOptionsAccordion
           cards={cards}
           selectedCardId={selectedCardId}
@@ -1202,184 +1378,6 @@ const IDCardMerge: React.FC = () => {
       <div className="flex items-center justify-center gap-1.5 text-center text-[11px] text-slate-500 dark:text-slate-400 mb-4 px-2">
         <i className="fas fa-shield-halved text-emerald-500"></i>
         <span>{t('privacyNotice')}</span>
-      </div>
-
-      {/* FIXED BOTTOM DOWNLOAD BAR (Always Visible & Above Mobile Nav Bar) */}
-      <div className="fixed bottom-[88px] sm:bottom-6 left-0 right-0 z-50 px-3 sm:px-4 pointer-events-none">
-        <div className="max-w-md mx-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-2.5 sm:p-3 shadow-2xl shadow-slate-900/15 pointer-events-auto flex flex-col gap-2">
-          {/* Missing photo hint line above controls */}
-          {missingPhotoHint && (
-            <div className="text-center text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
-              <i className="fas fa-circle-info text-[10px]"></i>
-              <span>{missingPhotoHint}</span>
-            </div>
-          )}
-
-          {/* Download Options: Format (PDF vs JPG) & Compress Quality Level */}
-          <div className="flex items-center justify-between gap-1.5 pt-0.5">
-            {/* Format Toggle (PDF vs JPG) */}
-            <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setDownloadFormat('pdf')}
-                className={`py-1 px-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
-                  downloadFormat === 'pdf'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                }`}
-              >
-                <i className="fas fa-file-pdf"></i>
-                <span>PDF</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setDownloadFormat('jpg')}
-                className={`py-1 px-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all ${
-                  downloadFormat === 'jpg'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                }`}
-              >
-                <i className="fas fa-file-image"></i>
-                <span>JPG</span>
-              </button>
-            </div>
-
-            {/* Quality & Compress Selector */}
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase hidden xs:inline">
-                {language === 'mr' ? 'साईज:' : language === 'hi' ? 'साइज:' : 'Size:'}
-              </span>
-              <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => setCompressLevel('compressed')}
-                  className={`py-1 px-2 rounded-lg font-black flex items-center gap-1 transition-all ${
-                    compressLevel === 'compressed'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                  }`}
-                  title="Under 200 KB - For Online Forms / Job Applications"
-                >
-                  <i className="fas fa-compress text-[9px]"></i>
-                  <span>&lt;200 KB</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCompressLevel('standard')}
-                  className={`py-1 px-2 rounded-lg font-black transition-all ${
-                    compressLevel === 'standard'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                  }`}
-                  title="Standard ~400 KB"
-                >
-                  <span>Medium</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCompressLevel('high')}
-                  className={`py-1 px-2 rounded-lg font-black transition-all ${
-                    compressLevel === 'high'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                  }`}
-                  title="300 DPI High Resolution - Best for Xerox / Print"
-                >
-                  <span>300 DPI</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Download Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleDownload()}
-              disabled={!hasBothImages || state.status === 'processing'}
-              className={`flex-1 py-3 sm:py-3.5 px-3.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer ${
-                hasBothImages
-                  ? downloadFormat === 'pdf'
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/30 ring-2 ring-blue-500/20'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/30 ring-2 ring-emerald-500/20'
-                  : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
-              }`}
-            >
-              {state.status === 'processing' ? (
-                <>
-                  <i className="fas fa-spinner fa-spin"></i>
-                  <span>{state.message || 'Processing...'}</span>
-                </>
-              ) : (
-                <>
-                  <i className={`fas ${downloadFormat === 'pdf' ? 'fa-file-pdf' : 'fa-file-image'} text-sm`}></i>
-                  <span>
-                    {downloadFormat === 'pdf'
-                      ? language === 'mr'
-                        ? 'A4 PDF डाऊनलोड करा'
-                        : language === 'hi'
-                        ? 'A4 PDF डाउनलोड करें'
-                        : 'Download A4 PDF'
-                      : language === 'mr'
-                      ? 'A4 JPG डाऊनलोड करा'
-                      : language === 'hi'
-                      ? 'A4 JPG डाउनलोड करें'
-                      : 'Download A4 JPG'}
-                  </span>
-                  <span className="text-[10px] font-mono opacity-85 bg-black/20 px-1.5 py-0.5 rounded">
-                    {compressLevel === 'compressed'
-                      ? '<200 KB'
-                      : compressLevel === 'standard'
-                      ? '~400 KB'
-                      : '300 DPI'}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* Quick 1-tap Alternate format button (Download other format instantly) */}
-            <button
-              type="button"
-              onClick={() => handleDownload(downloadFormat === 'pdf' ? 'jpg' : 'pdf')}
-              disabled={!hasBothImages || state.status === 'processing'}
-              className="py-3 sm:py-3.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-black text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-              title={
-                downloadFormat === 'pdf'
-                  ? 'Download as JPG image instead'
-                  : 'Download as PDF document instead'
-              }
-            >
-              <i className={`fas ${downloadFormat === 'pdf' ? 'fa-file-image text-emerald-500' : 'fa-file-pdf text-blue-500'}`}></i>
-              <span className="hidden xs:inline font-mono">
-                {downloadFormat === 'pdf' ? 'JPG' : 'PDF'}
-              </span>
-            </button>
-
-            {/* Share Button: appears once file is downloaded/ready */}
-            {state.status === 'success' && state.resultUrl && (
-              <button
-                type="button"
-                onClick={() =>
-                  shareFileViaAndroidBridge(
-                    state.resultUrl!,
-                    state.resultFileName || 'Aadhaar_A4.pdf'
-                  )
-                }
-                className="py-3 sm:py-3.5 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400/30 animate-in zoom-in duration-300 cursor-pointer"
-                title="Share file via Android Bridge"
-              >
-                <i className="fas fa-share-nodes text-sm"></i>
-                <span className="font-bold">
-                  {language === 'mr' ? 'शेअर करा' : language === 'hi' ? 'शेयर करें' : 'Share'}
-                </span>
-              </button>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
