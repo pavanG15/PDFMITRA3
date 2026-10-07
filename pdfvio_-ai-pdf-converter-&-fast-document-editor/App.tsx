@@ -31,6 +31,7 @@ import Contact from './pages/Contact';
 import Disclaimer from './pages/Disclaimer';
 import { showBannerAd } from './utils/shareHelper';
 import BannerAdBar from './components/BannerAdBar';
+import { TOOLS } from './constants';
 
 interface HeaderProps {
   isDark: boolean;
@@ -39,13 +40,13 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ isDark, toggleTheme, isHidden }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleToolsClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (location.pathname === '/') {
+    if (location.pathname === '/' || location.pathname === '/tools') {
       const el = document.getElementById('tools');
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -61,7 +62,113 @@ const Header: React.FC<HeaderProps> = ({ isDark, toggleTheme, isHidden }) => {
     }
   };
 
+  // Determine active header title, subtitle and icon based on current route
+  const getHeaderInfo = () => {
+    const path = location.pathname;
+
+    // Home
+    if (path === '/' && location.hash !== '#tools') {
+      return {
+        title: <>Aadhaar <span className="text-blue-600">1-Page</span></>,
+        subtitle: t('brandTagline'),
+        icon: 'fa-file-pdf'
+      };
+    }
+
+    // Tools section
+    if (path === '/tools' || location.hash === '#tools') {
+      return {
+        title: <>{t('tools')} <span className="text-blue-600">Suite</span></>,
+        subtitle: language === 'mr' ? 'सर्व मोफत PDF साधने' : language === 'hi' ? 'सभी मुफ्त PDF टूल्स' : 'All Free PDF Tools',
+        icon: 'fa-shapes'
+      };
+    }
+
+    // Aadhaar / ID Card tool
+    if (['/aadhaar-merge', '/id-merge', '/aadhar-merge', '/aadhaar-card'].includes(path)) {
+      return {
+        title: <>Aadhaar <span className="text-blue-600">1-Page</span></>,
+        subtitle: language === 'mr' ? 'समोरची व मागील बाजू १ पानावर' : language === 'hi' ? 'आगे व पीछे का भाग १ पेज पर' : 'Front & Back on 1-Page',
+        icon: 'fa-id-card'
+      };
+    }
+
+    // Scanner
+    if (path === '/scan') {
+      return {
+        title: <span className="text-slate-900 dark:text-white">{t('toolScanName')}</span>,
+        subtitle: t('toolScanDesc'),
+        icon: 'fa-camera'
+      };
+    }
+
+    // Blog
+    if (path.startsWith('/blog')) {
+      return {
+        title: <>PDF <span className="text-blue-600">Blog</span></>,
+        subtitle: language === 'mr' ? 'मार्गदर्शक व टिप्स' : language === 'hi' ? 'गाइड व टिप्स' : 'Guides, Tips & Updates',
+        icon: 'fa-book-open'
+      };
+    }
+
+    // About / Contact / Legal / Disclaimer
+    if (path === '/about') {
+      return {
+        title: <span className="text-slate-900 dark:text-white">{t('aboutUs')}</span>,
+        subtitle: language === 'mr' ? 'आमच्याबद्दल माहिती' : language === 'hi' ? 'हमारे बारे में' : 'About Aadhaar 1-Page',
+        icon: 'fa-circle-info'
+      };
+    }
+    if (path === '/contact') {
+      return {
+        title: <span className="text-slate-900 dark:text-white">{t('contactUs')}</span>,
+        subtitle: language === 'mr' ? 'संपर्क व मदत' : language === 'hi' ? 'संपर्क व सहायता' : 'Get In Touch & Support',
+        icon: 'fa-envelope'
+      };
+    }
+    if (path === '/legal') {
+      return {
+        title: <span className="text-slate-900 dark:text-white">{t('legalPrivacy')}</span>,
+        subtitle: language === 'mr' ? 'अटी व गोपनीयता' : language === 'hi' ? 'शर्तें व गोपनीयता' : 'Privacy Policy & Terms',
+        icon: 'fa-scale-balanced'
+      };
+    }
+    if (path === '/disclaimer') {
+      return {
+        title: <span className="text-slate-900 dark:text-white">{t('disclaimer')}</span>,
+        subtitle: language === 'mr' ? 'अस्वीकरण सूचना' : language === 'hi' ? 'अस्वीकरण' : 'Disclaimer & Notice',
+        icon: 'fa-shield-halved'
+      };
+    }
+
+    // Match any tool from constants
+    const matchedTool = TOOLS.find(tool => tool.path === path);
+    if (matchedTool) {
+      let name = matchedTool.name;
+      let desc = matchedTool.description;
+      if (matchedTool.id === 'merge') { name = t('toolMergeName'); desc = t('toolMergeDesc'); }
+      else if (matchedTool.id === 'split') { name = t('toolSplitName'); desc = t('toolSplitDesc'); }
+      else if (matchedTool.id === 'compress') { name = t('toolCompressName'); desc = t('toolCompressDesc'); }
+      else if (matchedTool.id === 'jpg-to-pdf') { name = t('toolJpgToPdfName'); desc = t('toolJpgToPdfDesc'); }
+      else if (matchedTool.id === 'pdf-to-jpg') { name = t('toolPdfToJpgName'); desc = t('toolPdfToJpgDesc'); }
+
+      return {
+        title: <span className="text-slate-900 dark:text-white">{name}</span>,
+        subtitle: desc,
+        icon: matchedTool.icon
+      };
+    }
+
+    return {
+      title: <>Aadhaar <span className="text-blue-600">1-Page</span></>,
+      subtitle: t('brandTagline'),
+      icon: 'fa-file-pdf'
+    };
+  };
+
   if (isHidden) return null;
+  const headerInfo = getHeaderInfo();
+
   return (
     <nav className="sticky top-0 z-50 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-900 transition-all duration-300">
       <div className="max-w-5xl mx-auto px-2.5 sm:px-4">
@@ -69,7 +176,7 @@ const Header: React.FC<HeaderProps> = ({ isDark, toggleTheme, isHidden }) => {
           <Link to="/" className="flex items-center gap-2 sm:gap-3 group active:scale-95 transition-transform min-w-0 shrink">
             <div className="relative shrink-0">
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 w-9 h-9 sm:w-11 sm:h-11 rounded-[12px] sm:rounded-[14px] text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <i className="fas fa-file-pdf text-base sm:text-xl"></i>
+                <i className={`fas ${headerInfo.icon?.startsWith('fa-') ? headerInfo.icon : `fa-${headerInfo.icon}`} text-base sm:text-xl`}></i>
               </div>
               <div className="absolute -top-1 -right-1 bg-blue-400 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-white dark:border-slate-950 flex items-center justify-center">
                 <i className="fas fa-bolt text-[5px] sm:text-[6px] text-white"></i>
@@ -77,10 +184,10 @@ const Header: React.FC<HeaderProps> = ({ isDark, toggleTheme, isHidden }) => {
             </div>
             <div className="flex flex-col -space-y-0.5 min-w-0">
               <span className="text-sm xs:text-base sm:text-xl font-[900] tracking-tight text-slate-900 dark:text-white leading-none truncate">
-                Aadhaar <span className="text-blue-600">1-Page</span>
+                {headerInfo.title}
               </span>
-              <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-slate-400 dark:text-slate-500 leading-none mt-0.5 truncate">
-                {t('brandTagline')}
+              <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] sm:tracking-[0.18em] text-slate-400 dark:text-slate-500 leading-none mt-0.5 truncate">
+                {headerInfo.subtitle}
               </span>
             </div>
           </Link>
@@ -119,7 +226,7 @@ const Header: React.FC<HeaderProps> = ({ isDark, toggleTheme, isHidden }) => {
             {/* Language Switcher */}
             <LanguageSelector />
 
-            {/* Dark/Day Mode Toggle Button - Sleek, single theme toggle */}
+            {/* Dark/Day Mode Toggle Button */}
             <button 
               id="theme-toggle-btn"
               onClick={toggleTheme}
@@ -149,7 +256,7 @@ const MobileNav: React.FC<{ isHidden?: boolean }> = ({ isHidden }) => {
 
   const handleToolsClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (path === '/') {
+    if (path === '/' || path === '/tools') {
       const el = document.getElementById('tools');
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -165,15 +272,21 @@ const MobileNav: React.FC<{ isHidden?: boolean }> = ({ isHidden }) => {
     }
   };
 
+  const isHomeActive = path === '/' && location.hash !== '#tools';
+  const isToolsActive = path === '/tools' || location.hash === '#tools';
+  const isAadhaarActive = ['/aadhaar-merge', '/id-merge', '/aadhar-merge', '/aadhaar-card'].includes(path);
+  const isBlogActive = path.startsWith('/blog');
+  const isScanActive = path === '/scan';
+
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-[60] px-4 pb-6 pointer-events-none">
-      <div className="bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-[2.5rem] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.15)] flex items-center justify-between px-6 py-2.5 pointer-events-auto">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-5 pointer-events-none">
+      <div className="bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-[2.5rem] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.2)] flex items-center justify-between px-6 py-2.5 pointer-events-auto">
         <Link 
           to="/"
           className="flex flex-col items-center gap-1 transition-all active:scale-90"
         >
-          <i className={`fas fa-house text-sm ${path === '/' && location.hash !== '#tools' ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}></i>
-          <span className={`text-[8px] font-black uppercase tracking-widest ${path === '/' && location.hash !== '#tools' ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}>
+          <i className={`fas fa-house text-sm ${isHomeActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}></i>
+          <span className={`text-[8px] uppercase tracking-widest ${isHomeActive ? 'text-blue-600 dark:text-blue-400 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-bold'}`}>
             {t('home')}
           </span>
         </Link>
@@ -185,22 +298,28 @@ const MobileNav: React.FC<{ isHidden?: boolean }> = ({ isHidden }) => {
           className="flex flex-col items-center gap-1 transition-all active:scale-90 cursor-pointer"
           title="Browse All Tools"
         >
-          <i className={`fas fa-shapes text-sm ${location.hash === '#tools' ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}></i>
-          <span className={`text-[8px] font-black uppercase tracking-widest ${location.hash === '#tools' ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}>
+          <i className={`fas fa-shapes text-sm ${isToolsActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}></i>
+          <span className={`text-[8px] uppercase tracking-widest ${isToolsActive ? 'text-blue-600 dark:text-blue-400 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-bold'}`}>
             {t('tools')}
           </span>
         </button>
 
-        {/* Floating Center Hero Button */}
+        {/* Center Hero Button (Aadhaar tool) - Active ONLY when Aadhaar tool is shown */}
         <Link 
           to="/aadhaar-merge"
           className="flex flex-col items-center gap-1 transition-all active:scale-90 relative -top-5"
           title="Aadhaar / ID Card in One Page"
         >
-          <div className="w-12 h-12 bg-gradient-to-tr from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-lg shadow-xl shadow-blue-500/40 ring-4 ring-white dark:ring-slate-950">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ring-4 ring-white dark:ring-slate-950 transition-all ${
+            isAadhaarActive
+              ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-xl shadow-blue-500/40 scale-105'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-sm'
+          }`}>
             <i className="fas fa-id-card"></i>
           </div>
-          <span className="text-[8px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 -mt-1 font-sans">
+          <span className={`text-[8px] uppercase tracking-widest -mt-1 font-sans ${
+            isAadhaarActive ? 'text-blue-600 dark:text-blue-400 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-bold'
+          }`}>
             Aadhaar
           </span>
         </Link>
@@ -209,8 +328,8 @@ const MobileNav: React.FC<{ isHidden?: boolean }> = ({ isHidden }) => {
           to="/blog"
           className="flex flex-col items-center gap-1 transition-all active:scale-90"
         >
-          <i className={`fas fa-book-open text-sm ${path.startsWith('/blog') ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}></i>
-          <span className={`text-[8px] font-black uppercase tracking-widest ${path.startsWith('/blog') ? 'text-blue-600' : 'text-slate-400 dark:text-slate-500'}`}>
+          <i className={`fas fa-book-open text-sm ${isBlogActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}></i>
+          <span className={`text-[8px] uppercase tracking-widest ${isBlogActive ? 'text-blue-600 dark:text-blue-400 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-bold'}`}>
             {t('blog')}
           </span>
         </Link>
@@ -220,8 +339,8 @@ const MobileNav: React.FC<{ isHidden?: boolean }> = ({ isHidden }) => {
           className="flex flex-col items-center gap-1 transition-all active:scale-90"
           title="Scan Document"
         >
-          <i className={`fas fa-camera text-sm ${path === '/scan' ? 'text-teal-600' : 'text-slate-400 dark:text-slate-500'}`}></i>
-          <span className={`text-[8px] font-black uppercase tracking-widest ${path === '/scan' ? 'text-teal-600' : 'text-slate-400 dark:text-slate-500'}`}>
+          <i className={`fas fa-camera text-sm ${isScanActive ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`}></i>
+          <span className={`text-[8px] uppercase tracking-widest ${isScanActive ? 'text-teal-600 dark:text-teal-400 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-bold'}`}>
             {t('toolScanName')}
           </span>
         </Link>
@@ -244,9 +363,10 @@ function AppContent({ isDark, toggleTheme }: { isDark: boolean; toggleTheme: () 
   return (
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDark ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <Header isDark={isDark} toggleTheme={toggleTheme} isHidden={isScannerActive} />
-      <main className={`flex-grow ${isScannerActive ? '' : 'pb-32 md:pb-0'}`}>
+      <main className={`flex-grow ${isScannerActive ? '' : 'pb-40 sm:pb-36 md:pb-16'}`}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/tools" element={<Home />} />
           <Route path="/merge" element={<Merge />} />
           <Route path="/split" element={<Split />} />
           <Route path="/extract-pages" element={<ExtractPages />} />
@@ -332,7 +452,7 @@ function AppContent({ isDark, toggleTheme }: { isDark: boolean; toggleTheme: () 
       </footer>
       {/* Universal Banner Ad Space at Bottom of Pages for AdMob */}
       {!isScannerActive && (
-        <div className="w-full shrink-0 sticky bottom-0 z-30">
+        <div className="w-full shrink-0 relative z-10">
           <BannerAdBar />
         </div>
       )}
