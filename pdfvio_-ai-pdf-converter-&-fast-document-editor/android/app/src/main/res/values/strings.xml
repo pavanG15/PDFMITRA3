@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">Aadhar in 1 page (PixelPro)</string>
+    <string name="web_app_url">https://pdfmitra-3.vercel.app/</string>
+    
+    <!-- Network Error Screen -->
+    <string name="error_network_title">Connection Lost</string>
+    <string name="error_network_message">Unable to reach the document servers. Please check your internet connection and try again.</string>
+    <string name="btn_retry">Retry Connection</string>
+    
+    <!-- File download -->
+    <string name="download_completed">Download completed: %s</string>
+    <string name="download_failed">Download failed: %s</string>
+    <string name="downloading">Downloading %s...</string>
+    <string name="share_file">Share Document</string>
+    
+    <!-- Permissions -->
+    <string name="camera_permission_required">Camera permission is required to scan documents directly.</string>
+</resources>
