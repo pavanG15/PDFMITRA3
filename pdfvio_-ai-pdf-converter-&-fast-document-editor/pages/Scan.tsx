@@ -35,6 +35,13 @@ interface CapturedPage {
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
 
+// FIX: clamp very large photos (12MP+ gallery uploads, high-res camera
+// captures) to this max dimension before any heavy processing (OpenCV
+// auto-crop, pixel-by-pixel filters). Processing full-resolution images on
+// low-memory Android WebViews is what was causing the app to freeze and
+// then get killed ("crash") after getting stuck on the processing screen.
+const MAX_PROCESS_DIMENSION = 1800;
+
 const generateId = () => {
   if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) {
     return (crypto as any).randomUUID();
@@ -64,6 +71,25 @@ const drawImageToFreshCanvas = (img: HTMLImageElement): HTMLCanvasElement => {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0);
+  }
+  return canvas;
+};
+
+// FIX (new): scales an image down onto a fresh canvas, clamped to maxDim on
+// its longest side. Keeps aspect ratio. Used before any heavy processing so
+// a 4000x3000 gallery photo doesn't blow up memory/CPU on cheap devices.
+const getScaledCanvas = (img: HTMLImageElement, maxDim: number): HTMLCanvasElement => {
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(srcW * scale));
+  canvas.height = Math.max(1, Math.round(srcH * scale));
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   }
   return canvas;
 };
@@ -191,48 +217,85 @@ const Scan: React.FC = () => {
   // Process incoming image (from Camera, File Upload, or Android Bridge)
   const processImage = useCallback(
     (imageSrc: string) => {
-      setState({ status: 'processing', progress: 40, message: 'Processing Document...' });
+      setState({ status: 'processing', progress: 20, message: 'Loading image...' });
+
       const img = new Image();
       img.crossOrigin = 'anonymous';
+
       img.onload = () => {
-        let finalCanvas: HTMLCanvasElement | null = null;
+        // FIX: the whole body is wrapped in try/catch now — any unexpected
+        // failure (corrupt canvas, OpenCV throwing a non-Error, huge canvas
+        // exceeding browser limits, etc.) resolves to a visible error state
+        // instead of leaving the UI stuck on the processing screen forever.
+        try {
+          setState({ status: 'processing', progress: 50, message: 'Processing Document...' });
 
-        if (isAutoMode && scannerRef.current) {
-          try {
-            finalCanvas = scannerRef.current.extractPaper(img, img.width, img.height);
-          } catch (e) {
-            console.warn('Auto extraction failed, using raw capture', e);
+          // Always work on a size-clamped copy first — this is what prevents
+          // freezes/crashes on large gallery photos or high-res captures.
+          const scaledCanvas = getScaledCanvas(img, MAX_PROCESS_DIMENSION);
+
+          let finalCanvas: HTMLCanvasElement | null = null;
+
+          if (isAutoMode && scannerRef.current) {
+            try {
+              const extracted = scannerRef.current.extractPaper(
+                scaledCanvas,
+                scaledCanvas.width,
+                scaledCanvas.height
+              );
+              // Guard against a degenerate/empty result from the edge detector
+              if (extracted && extracted.width > 0 && extracted.height > 0) {
+                finalCanvas = extracted;
+              }
+            } catch (e) {
+              console.warn('Auto extraction failed, using raw capture', e);
+            }
           }
-        }
 
-        if (!finalCanvas) {
-          finalCanvas = drawImageToFreshCanvas(img);
-        }
+          if (!finalCanvas) {
+            finalCanvas = scaledCanvas;
+          }
 
-        const processedData = finalCanvas.toDataURL('image/jpeg', 0.9);
-        pageCounterRef.current += 1;
-        const newPage: CapturedPage = {
-          rawOriginal: imageSrc,
-          original: processedData,
-          processed: processedData,
-          filter: 'none',
-          id: generateId(),
-          name: `Page ${pageCounterRef.current}`,
-          date: new Date().toLocaleDateString('en-GB'),
-          width: finalCanvas.width,
-          height: finalCanvas.height,
-        };
+          const processedData = finalCanvas.toDataURL('image/jpeg', 0.9);
+          pageCounterRef.current += 1;
+          const newPage: CapturedPage = {
+            rawOriginal: imageSrc,
+            original: processedData,
+            processed: processedData,
+            filter: 'none',
+            id: generateId(),
+            name: `Page ${pageCounterRef.current}`,
+            date: new Date().toLocaleDateString('en-GB'),
+            width: finalCanvas.width,
+            height: finalCanvas.height,
+          };
 
-        setCapturedPages((prev) => [...prev, newPage]);
-        setState({ status: 'idle', progress: 0 });
+          setCapturedPages((prev) => [...prev, newPage]);
+          setState({ status: 'idle', progress: 0 });
 
-        if (!isAutoMode) {
-          stopCamera();
+          if (!isAutoMode) {
+            stopCamera();
+          }
+        } catch (e) {
+          console.error('Document processing failed:', e);
+          setState({
+            status: 'error',
+            progress: 0,
+            message: 'Could not process this image. Please try a smaller photo or try again.',
+          });
         }
       };
+
       img.onerror = () => {
         setState({ status: 'error', progress: 0, message: 'Failed to load captured image.' });
       };
+
+      // *** THE CRITICAL FIX ***
+      // This line was missing entirely in the previous version. Without it,
+      // the Image element never actually loads, so onload/onerror never
+      // fire, and the app stays frozen on "Processing Document... 40%"
+      // forever — which is exactly the hang/crash you were seeing.
+      img.src = imageSrc;
     },
     [isAutoMode, stopCamera]
   );
@@ -441,8 +504,11 @@ const Scan: React.FC = () => {
     const targetPage = capturedPages.find((p) => p.id === pageId);
     if (!targetPage) return;
 
+    // FIX: handlers are attached BEFORE src is set (avoids a race where a
+    // fast/cached load fires before the handler exists), and onerror now
+    // rejects instead of leaving the promise pending forever.
     const rotateDataUrl = (src: string): Promise<{ url: string; w: number; h: number }> =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
@@ -450,7 +516,10 @@ const Scan: React.FC = () => {
           canvas.width = img.height;
           canvas.height = img.width;
           const ctx = canvas.getContext('2d');
-          if (!ctx) return resolve({ url: src, w: img.width, h: img.height });
+          if (!ctx) {
+            resolve({ url: src, w: img.width, h: img.height });
+            return;
+          }
           ctx.translate(canvas.width / 2, canvas.height / 2);
           ctx.rotate((90 * Math.PI) / 180);
           ctx.drawImage(img, -img.width / 2, -img.height / 2);
@@ -460,45 +529,50 @@ const Scan: React.FC = () => {
             h: canvas.height,
           });
         };
+        img.onerror = () => reject(new Error('Failed to load image for rotation.'));
         img.src = src;
       });
 
-    Promise.all([
-      rotateDataUrl(targetPage.original),
-      rotateDataUrl(targetPage.processed),
-    ]).then(([rotOrig, rotProc]) => {
-      setCapturedPages((prev) =>
-        prev.map((p) =>
-          p.id === pageId
-            ? {
-                ...p,
-                original: rotOrig.url,
-                processed: rotProc.url,
-                width: rotProc.w,
-                height: rotProc.h,
-              }
-            : p
-        )
-      );
-      if (previewPage?.id === pageId) {
-        setPreviewPage((prev) =>
-          prev
-            ? {
-                ...prev,
-                original: rotOrig.url,
-                processed: rotProc.url,
-                width: rotProc.w,
-                height: rotProc.h,
-              }
-            : null
+    Promise.all([rotateDataUrl(targetPage.original), rotateDataUrl(targetPage.processed)])
+      .then(([rotOrig, rotProc]) => {
+        setCapturedPages((prev) =>
+          prev.map((p) =>
+            p.id === pageId
+              ? {
+                  ...p,
+                  original: rotOrig.url,
+                  processed: rotProc.url,
+                  width: rotProc.w,
+                  height: rotProc.h,
+                }
+              : p
+          )
         );
-      }
-      if (selectedMenuPage?.id === pageId) {
-        setSelectedMenuPage((prev) =>
-          prev ? { ...prev, original: rotOrig.url, processed: rotProc.url } : null
-        );
-      }
-    });
+        if (previewPage?.id === pageId) {
+          setPreviewPage((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  original: rotOrig.url,
+                  processed: rotProc.url,
+                  width: rotProc.w,
+                  height: rotProc.h,
+                }
+              : null
+          );
+        }
+        if (selectedMenuPage?.id === pageId) {
+          setSelectedMenuPage((prev) =>
+            prev ? { ...prev, original: rotOrig.url, processed: rotProc.url } : null
+          );
+        }
+      })
+      .catch((e) => {
+        // FIX: previously a failed rotation had no .catch at all, so it
+        // failed completely silently with no feedback to the user.
+        console.error('Rotate failed:', e);
+        setState({ status: 'error', progress: 0, message: 'Could not rotate this page.' });
+      });
   };
 
   const handleExportSinglePage = async (page: CapturedPage, format: 'PDF' | 'JPG') => {
@@ -516,7 +590,14 @@ const Scan: React.FC = () => {
         setTimeout(() => URL.revokeObjectURL(url), 3000);
       }
     } catch (err) {
+      // FIX: previously only logged to console — the user saw nothing happen
+      // and no indication anything had gone wrong.
       console.error('Export single page error:', err);
+      setState({
+        status: 'error',
+        progress: 0,
+        message: 'Could not export this page. Please try again.',
+      });
     }
   };
 
@@ -531,6 +612,14 @@ const Scan: React.FC = () => {
         if (typeof reader.result === 'string') {
           processImage(reader.result);
         }
+      };
+      reader.onerror = () => {
+        console.error('Failed to read uploaded file:', file.name);
+        setState({
+          status: 'error',
+          progress: 0,
+          message: `Could not read "${file.name}". Please try another file.`,
+        });
       };
       reader.readAsDataURL(file);
     });
@@ -599,10 +688,21 @@ const Scan: React.FC = () => {
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = page.original;
-    await new Promise((resolve) => {
-      img.onload = resolve;
-    });
+
+    // FIX: handlers attached before src is set, and a failed load now
+    // rejects and surfaces an error instead of leaving the UI stuck on the
+    // "Applying changes..." screen forever.
+    try {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load image for editing.'));
+        img.src = page.original;
+      });
+    } catch (e) {
+      console.error(e);
+      setState({ status: 'error', progress: 0, message: 'Could not load the image to edit.' });
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -613,65 +713,74 @@ const Scan: React.FC = () => {
 
     let nextBaseOriginal = page.original;
 
-    if (doCrop && croppedAreaPixels) {
-      canvas.width = Math.max(10, Math.round(croppedAreaPixels.width));
-      canvas.height = Math.max(10, Math.round(croppedAreaPixels.height));
-      ctx.drawImage(
-        img,
-        croppedAreaPixels.x,
-        croppedAreaPixels.y,
-        croppedAreaPixels.width,
-        croppedAreaPixels.height,
-        0,
-        0,
-        canvas.width,
-        canvas.height
+    try {
+      if (doCrop && croppedAreaPixels) {
+        canvas.width = Math.max(10, Math.round(croppedAreaPixels.width));
+        canvas.height = Math.max(10, Math.round(croppedAreaPixels.height));
+        ctx.drawImage(
+          img,
+          croppedAreaPixels.x,
+          croppedAreaPixels.y,
+          croppedAreaPixels.width,
+          croppedAreaPixels.height,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+        // Save cropped base image so subsequent filter changes don't undo the crop
+        nextBaseOriginal = canvas.toDataURL('image/jpeg', 0.92);
+      } else {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+      }
+
+      applyPixelFilterToCanvas(ctx, canvas.width, canvas.height, filter);
+
+      const processedData = canvas.toDataURL('image/jpeg', 0.9);
+      const { width, height } = canvas;
+
+      setCapturedPages((prev) =>
+        prev.map((p) =>
+          p.id === pageId
+            ? {
+                ...p,
+                original: nextBaseOriginal,
+                processed: processedData,
+                filter,
+                width,
+                height,
+              }
+            : p
+        )
       );
-      // Save cropped base image so subsequent filter changes don't undo the crop
-      nextBaseOriginal = canvas.toDataURL('image/jpeg', 0.92);
-    } else {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+
+      if (previewPage?.id === pageId) {
+        setPreviewPage((prev) =>
+          prev
+            ? {
+                ...prev,
+                original: nextBaseOriginal,
+                processed: processedData,
+                filter,
+                width,
+                height,
+              }
+            : null
+        );
+      }
+
+      setState({ status: 'idle', progress: 0 });
+      setIsCropping(false);
+    } catch (e) {
+      console.error('Failed to apply crop/filter:', e);
+      setState({
+        status: 'error',
+        progress: 0,
+        message: 'Could not apply changes to this page.',
+      });
     }
-
-    applyPixelFilterToCanvas(ctx, canvas.width, canvas.height, filter);
-
-    const processedData = canvas.toDataURL('image/jpeg', 0.9);
-    const { width, height } = canvas;
-
-    setCapturedPages((prev) =>
-      prev.map((p) =>
-        p.id === pageId
-          ? {
-              ...p,
-              original: nextBaseOriginal,
-              processed: processedData,
-              filter,
-              width,
-              height,
-            }
-          : p
-      )
-    );
-
-    if (previewPage?.id === pageId) {
-      setPreviewPage((prev) =>
-        prev
-          ? {
-              ...prev,
-              original: nextBaseOriginal,
-              processed: processedData,
-              filter,
-              width,
-              height,
-            }
-          : null
-      );
-    }
-
-    setState({ status: 'idle', progress: 0 });
-    setIsCropping(false);
   };
 
   // Restore page back to uncropped, unfiltered original
@@ -710,6 +819,15 @@ const Scan: React.FC = () => {
         );
       }
       setIsCropping(false);
+    };
+    // FIX: added onerror handling — previously a failed load here did
+    // nothing at all, silently.
+    img.onerror = () => {
+      setState({
+        status: 'error',
+        progress: 0,
+        message: 'Could not reset this page to its original.',
+      });
     };
     img.src = page.rawOriginal;
   };
