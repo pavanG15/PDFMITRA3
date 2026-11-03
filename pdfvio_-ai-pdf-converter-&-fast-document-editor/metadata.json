@@ -1,0 +1,10 @@
+{
+  "name": "PDFVio: AI PDF Converter & Fast Document Editor",
+  "description": "Aadhaar in One Page and PDF tools suite with multilingual support (English, Marathi, Hindi). Fast merge, convert, scan, and edit documents directly in the browser.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
