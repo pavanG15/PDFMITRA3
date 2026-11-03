@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Splash Screen API Theme (Android 12+) -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/bg_white</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_app_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.PixelPro</item>
+    </style>
+
+    <!-- Base Application Theme -->
+    <style name="Theme.PixelPro" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <!-- Status Bar Configuration: White Background with Dark Icons -->
+        <item name="android:statusBarColor">@color/bg_white</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+
+        <!-- Navigation Bar Configuration -->
+        <item name="android:navigationBarColor">@color/bg_white</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+
+        <!-- Color Palette -->
+        <item name="colorPrimary">@color/primary_blue</item>
+        <item name="colorPrimaryVariant">@color/primary_blue_dark</item>
+        <item name="colorSecondary">@color/accent_indigo</item>
+        <item name="android:colorBackground">@color/bg_light</item>
+    </style>
+
+</resources>
